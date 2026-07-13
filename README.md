@@ -207,6 +207,7 @@ ORDER BY bec.Language, CallsWithThisCreditLine DESC;
 -- confirmed, filtered to deposit-related line item descriptions.
 
 
+SELECT DISTINCT Market FROM iSigma_Customer_Master WHERE Market LIKE '%exas%';
 
 
 
