@@ -17,6 +17,12 @@ Ctrl + C (ye server stop karne k liye hai)
 cd ~/call-dashboard
 code .
 
+(jab vs code khule ga tab)
+select src on the left panel
+then right click on src and add new file
+rename the file to call_forecast_dashboard.jsx
+open the file and paste the code from github to the newly created file in vscode.
+
 (ye karke phir terminal mein jana)
 
 npm install recharts
