@@ -108,6 +108,29 @@ FROM #BillSplitFlags;
 -- on BILL_NO to get Bill_Date, then GROUP BY month.
 
 
+
+
+;WITH RankedBills AS (
+    SELECT
+        bm.cust_id,
+        bm.Bill_No,
+        bm.Bill_Date,
+        bm.Product,
+        bsf.IsSplitBill,
+        ROW_NUMBER() OVER (PARTITION BY bm.cust_id ORDER BY bm.Bill_Date DESC) AS rn
+    FROM iSigma_Bill_Master bm
+    JOIN iSigma_Customer_Master cm ON cm.cust_id = bm.cust_id
+    LEFT JOIN #BillSplitFlags bsf ON bm.Bill_No = bsf.BILL_NO
+    WHERE cm.Market = 'Texas'
+      AND cm.CustomerType = 'Residential'
+      AND cm.FlowStart IS NOT NULL
+      AND cm.FlowEnd IS NULL
+)
+SELECT * FROM RankedBills WHERE rn = 1;
+
+
+
+
 -- STEP 3: Determine each customer's product/split-status per bill
 ;WITH RankedBills AS (
     SELECT
