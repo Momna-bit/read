@@ -278,6 +278,11 @@ SELECT COLUMN_NAME, DATA_TYPE
 FROM INFORMATION_SCHEMA.COLUMNS
 WHERE TABLE_NAME = 'Care_CallAI';
 
+SELECT COUNT(DISTINCT ContactID) AS BillExplanationCalls
+FROM Care_CallAI
+WHERE [call.reason] = 'Bill Explanation';
+
+
 
 
 -- STEP 4: Attach each call to the customer's most-recent bill as of that call date
