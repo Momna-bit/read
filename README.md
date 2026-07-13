@@ -250,6 +250,11 @@ FROM CustomerSplitStatus
 GROUP BY IsSplitBill;
 
 
+SELECT TOP 20 [highbill.reason], [highbill.reasongranular], [call.reason]
+FROM Care_CallAI
+WHERE [highbill.reason] IS NOT NULL AND [highbill.reason] <> '';
+
+
 
 
 -- STEP 3: Determine each customer's product/split-status per bill
