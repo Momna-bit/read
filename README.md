@@ -282,6 +282,14 @@ SELECT COUNT(DISTINCT ContactID) AS BillExplanationCalls
 FROM Care_CallAI
 WHERE [call.reason] = 'Bill Explanation';
 
+SELECT
+    [highbill.reason],
+    [highbill.reasongranular],
+    COUNT(DISTINCT ContactID) AS Calls
+FROM Care_CallAI
+WHERE [call.reason] = 'Bill Explanation'
+GROUP BY [highbill.reason], [highbill.reasongranular]
+ORDER BY Calls DESC;
 
 
 
