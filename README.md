@@ -1,11 +1,3 @@
-
-
-
-
-
-
-
-
 Pehle terminal dekh -> git bash
 
 (step by step check karna. Example node -v likh ke hit enter)
@@ -213,5 +205,117 @@ ORDER BY bec.Language, CallsWithThisCreditLine DESC;
 -- STEP 3: Deposit line items — hold until Jonathan confirms whether these
 -- are untranslated on Spanish bills. Same query pattern as Step 2 once
 -- confirmed, filtered to deposit-related line item descriptions.
+
+
+
+
+
+/* =====================================================================
+   TASK 1 FOLLOW-UP: 6-MONTH BACKTEST, SUNDAY EXCLUDED FROM ACCURACY
+   Stakeholder ask: extend backtest beyond 39 days to last 6 months,
+   and exclude Sunday from the accuracy calc since Care doesn't operate
+   Sundays (model already assigns 0 calls to Sunday).
+   ===================================================================== */
+
+-- STEP 0: Set the window (last 6 months ending at most recent complete data day)
+DECLARE @EndDate DATE = (SELECT DATEADD(DAY, -1, CAST(MAX(CallDateTime) AS DATE))
+                         FROM dbo.IVR);  -- -1 to avoid a partial/late-loading final day
+DECLARE @StartDate DATE = DATEADD(MONTH, -6, @EndDate);
+
+-- STEP 1: Recompute day-of-week rates over the full 6-month window
+--         (more stable than the original 39-day sample)
+;WITH ScopedCalls AS (
+    SELECT
+        CAST(CallDateTime AS DATE) AS CallDate,
+        DATENAME(WEEKDAY, CallDateTime) AS DOW
+    FROM dbo.IVR
+    WHERE Department = 'Care'
+      AND CallType IN ('Inbound','Transfer')
+      AND AgentTalkTime > 0
+      AND CAST(CallDateTime AS DATE) BETWEEN @StartDate AND @EndDate
+      AND (Queue IS NULL OR Queue = ''
+           OR (Queue NOT LIKE '%Alberta%' AND Queue NOT LIKE '%California%' AND Queue NOT LIKE '%NorthCanada%'))
+),
+DailyCounts AS (
+    SELECT CallDate, DOW, COUNT(*) AS CallCount
+    FROM ScopedCalls
+    GROUP BY CallDate, DOW
+),
+ActiveCust AS (
+    SELECT COUNT(*) AS ActiveCustomers
+    FROM iSigma_Customer_Master
+    WHERE Market = 'Texas'
+      AND CustomerType = 'Residential'
+      AND FlowStart IS NOT NULL
+      -- NOTE: point-in-time snapshot (as of @EndDate). Original model treated
+      -- ~640K as stable across the window; if the customer base moved
+      -- meaningfully over 6 months, may need per-month customer counts instead.
+)
+SELECT
+    DOW,
+    COUNT(*) AS NumDays,
+    SUM(CallCount) AS TotalCalls,
+    AVG(CAST(CallCount AS FLOAT)) AS AvgCallsPerDay,
+    AVG(CAST(CallCount AS FLOAT)) / (SELECT ActiveCustomers FROM ActiveCust) * 1000.0 AS RatePer1000
+INTO #NewDOWRates
+FROM DailyCounts
+GROUP BY DOW;
+
+SELECT * FROM #NewDOWRates ORDER BY
+    CASE DOW WHEN 'Monday' THEN 1 WHEN 'Tuesday' THEN 2 WHEN 'Wednesday' THEN 3
+             WHEN 'Thursday' THEN 4 WHEN 'Friday' THEN 5 WHEN 'Saturday' THEN 6 WHEN 'Sunday' THEN 7 END;
+
+-- >>> CHECKPOINT: compare these new rates to the original 39-day rates
+--     (Mon 6.958, Tue 5.498, Wed 5.183, Thu 4.462, Fri 4.223, Sat 1.794, Sun 0)
+--     Big divergence = worth flagging to Jonathan before finalizing.
+
+
+-- STEP 2: Validate — predicted vs actual per day over the 6-month window
+DECLARE @ActiveCustomers INT = (SELECT COUNT(*) FROM iSigma_Customer_Master
+                                 WHERE Market='Texas' AND CustomerType='Residential' AND FlowStart IS NOT NULL);
+
+;WITH ScopedCalls AS (
+    SELECT CAST(CallDateTime AS DATE) AS CallDate, DATENAME(WEEKDAY, CallDateTime) AS DOW
+    FROM dbo.IVR
+    WHERE Department = 'Care' AND CallType IN ('Inbound','Transfer') AND AgentTalkTime > 0
+      AND CAST(CallDateTime AS DATE) BETWEEN @StartDate AND @EndDate
+      AND (Queue IS NULL OR Queue = ''
+           OR (Queue NOT LIKE '%Alberta%' AND Queue NOT LIKE '%California%' AND Queue NOT LIKE '%NorthCanada%'))
+),
+DailyActual AS (
+    SELECT CallDate, DOW, COUNT(*) AS ActualCalls FROM ScopedCalls GROUP BY CallDate, DOW
+)
+SELECT
+    a.CallDate,
+    a.DOW,
+    a.ActualCalls,
+    ROUND(@ActiveCustomers / 1000.0 * r.RatePer1000, 0) AS PredictedCalls,
+    CASE WHEN a.DOW = 'Sunday' THEN NULL   -- excluded per stakeholder request
+         ELSE ABS(a.ActualCalls - (@ActiveCustomers / 1000.0 * r.RatePer1000)) / NULLIF(a.ActualCalls, 0)
+    END AS PctError
+INTO #BacktestResults
+FROM DailyActual a
+JOIN #NewDOWRates r ON a.DOW = r.DOW;
+
+SELECT * FROM #BacktestResults ORDER BY CallDate;
+
+
+-- STEP 3: Summary accuracy, Sunday excluded
+SELECT
+    COUNT(*) AS DaysEvaluated,
+    AVG(PctError) AS AvgPctError_ExclSunday,
+    MIN(PctError) AS BestDay,
+    MAX(PctError) AS WorstDay
+FROM #BacktestResults
+WHERE DOW <> 'Sunday';
+
+-- Optional: same summary but ALSO excluding the July 4 holiday window,
+-- to separate "normal day accuracy" from known holiday distortion —
+-- useful context alongside the headline number.
+-- SELECT AVG(PctError) FROM #BacktestResults
+-- WHERE DOW <> 'Sunday' AND CallDate NOT BETWEEN '2026-07-03' AND '2026-07-09';
+
+DROP TABLE #NewDOWRates;
+DROP TABLE #BacktestResults;
 
 
