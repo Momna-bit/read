@@ -82,6 +82,9 @@ IF OBJECT_ID('tempdb..#BillSplitFlags') IS NOT NULL DROP TABLE #BillSplitFlags;
     JOIN iSigma_Customer_Master cm ON cm.cust_id = bcd.CUST_ID
     WHERE cm.Market = 'Texas'
       AND cm.CustomerType = 'Residential'
+      AND cm.FlowStart IS NOT NULL          -- NEW
+      AND cm.FlowEnd IS NULL                -- NEW
+      AND bcd.CO_START_DATE >= DATEADD(MONTH, -6, GETDATE())  -- NEW
     GROUP BY bcd.BILL_NO, bcd.CUST_ID
 )
 SELECT
@@ -91,7 +94,6 @@ SELECT
     CASE WHEN DistinctProducts > 1 THEN 1 ELSE 0 END AS IsSplitBill
 INTO #BillSplitFlags
 FROM BillProducts;
-
 
 
 
