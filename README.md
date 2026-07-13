@@ -192,6 +192,15 @@ FROM BillProducts;
 
 
 
+SELECT TOP 10 ivr.AccountNumber, bm.cust_id
+FROM dbo.IVR ivr
+JOIN iSigma_Bill_Master bm ON bm.cust_id = ivr.AccountNumber
+WHERE ivr.Department = 'Care';
+
+
+
+
+
 
 -- STEP 3: Determine each customer's product/split-status per bill
 ;WITH RankedBills AS (
