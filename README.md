@@ -69,6 +69,32 @@ SELECT
 INTO #BillSplitFlags
 FROM BillProducts;
 
+
+
+IF OBJECT_ID('tempdb..#BillSplitFlags') IS NOT NULL DROP TABLE #BillSplitFlags;
+
+;WITH BillProducts AS (
+    SELECT
+        bcd.BILL_NO,
+        bcd.CUST_ID,
+        COUNT(DISTINCT bcd.Product) AS DistinctProducts
+    FROM iSigma_Bill_Contract_Details bcd
+    JOIN iSigma_Customer_Master cm ON cm.cust_id = bcd.CUST_ID
+    WHERE cm.Market = 'Texas'
+      AND cm.CustomerType = 'Residential'
+    GROUP BY bcd.BILL_NO, bcd.CUST_ID
+)
+SELECT
+    BILL_NO,
+    CUST_ID,
+    DistinctProducts,
+    CASE WHEN DistinctProducts > 1 THEN 1 ELSE 0 END AS IsSplitBill
+INTO #BillSplitFlags
+FROM BillProducts;
+
+
+
+
 -- STEP 2: What % of all bills are split?
 SELECT
     COUNT(*) AS TotalBills,
@@ -207,7 +233,7 @@ ORDER BY bec.Language, CallsWithThisCreditLine DESC;
 -- confirmed, filtered to deposit-related line item descriptions.
 
 
-SELECT DISTINCT Market FROM iSigma_Customer_Master WHERE Market LIKE '%exas%';
+
 
 
 
