@@ -198,6 +198,36 @@ JOIN iSigma_Bill_Master bm ON bm.cust_id = ivr.AccountNumber
 WHERE ivr.Department = 'Care';
 
 
+IF OBJECT_ID('tempdb..#CallsWithBillContext') IS NOT NULL DROP TABLE #CallsWithBillContext;
+
+;WITH ScopedCalls AS (
+    SELECT
+        ivr.ContactID,
+        ivr.AccountNumber,
+        CAST(ivr.CallDate AS DATE) AS CallDate
+    FROM dbo.IVR ivr
+    WHERE ivr.Department = 'Care'
+      AND ivr.CallType IN ('Inbound','Transfer')
+      AND ivr.AgentTalkTime > 0
+),
+CallWithBill AS (
+    SELECT
+        c.ContactID,
+        c.AccountNumber,
+        c.CallDate,
+        bm.Bill_No,
+        bm.Product,
+        bsf.IsSplitBill,
+        ROW_NUMBER() OVER (PARTITION BY c.ContactID ORDER BY bm.Bill_Date DESC) AS rn
+    FROM ScopedCalls c
+    JOIN iSigma_Bill_Master bm ON bm.cust_id = c.AccountNumber
+       AND bm.Bill_Date <= c.CallDate
+    LEFT JOIN #BillSplitFlags bsf ON bm.Bill_No = bsf.BILL_NO
+)
+SELECT ContactID, AccountNumber, CallDate, Bill_No, Product, IsSplitBill
+INTO #CallsWithBillContext
+FROM CallWithBill
+WHERE rn = 1;
 
 
 
