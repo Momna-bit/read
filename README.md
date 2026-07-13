@@ -255,6 +255,23 @@ FROM Care_CallAI
 WHERE [highbill.reason] IS NOT NULL AND [highbill.reason] <> '';
 
 
+SELECT [highbill.reason], [highbill.reasongranular], [highbill.agentexplanation], COUNT(DISTINCT ContactID) AS Calls
+FROM Care_CallAI
+WHERE [call.reason] = 'Bill Explanation'
+  AND ([highbill.reasongranular] LIKE '%Summer%' OR [highbill.agentexplanation] LIKE '%Summer%')
+GROUP BY [highbill.reason], [highbill.reasongranular], [highbill.agentexplanation];
+
+
+SELECT SUM(Calls) AS TotalCreditRelatedCalls
+FROM (
+    SELECT [highbill.reasongranular], COUNT(DISTINCT ContactID) AS Calls
+    FROM Care_CallAI
+    WHERE [call.reason] = 'Bill Explanation' AND [highbill.reason] = 'Credit'
+    GROUP BY [highbill.reasongranular]
+) t;
+
+
+
 
 
 -- STEP 3: Determine each customer's product/split-status per bill
