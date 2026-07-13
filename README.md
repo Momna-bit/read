@@ -316,6 +316,18 @@ WHERE DOW <> 'Sunday';
 -- WHERE DOW <> 'Sunday' AND CallDate NOT BETWEEN '2026-07-03' AND '2026-07-09';
 
 DROP TABLE #NewDOWRates;
-DROP TABLE #BacktestResults;
+DROP TABLE #BacktestResults;  
+
+
+
+SELECT
+    COUNT(*) AS DaysEvaluated,
+    AVG(PctError) AS AvgPctError_ExclSunday_ExclHolidays
+FROM #BacktestResults
+WHERE DOW <> 'Sunday'
+  AND CallDate NOT IN ('2026-05-25','2026-05-26')  -- Memorial Day window
+  AND CallDate NOT BETWEEN '2026-07-03' AND '2026-07-09';  -- July 4 window
+
+
 
 
