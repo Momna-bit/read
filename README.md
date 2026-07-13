@@ -267,6 +267,14 @@ GROUP BY IsSplitBill;
 SELECT * FROM RankedBills WHERE rn = 1;  -- sanity check: current bill per customer
 
 
+
+
+SELECT COLUMN_NAME, DATA_TYPE
+FROM INFORMATION_SCHEMA.COLUMNS
+WHERE TABLE_NAME = 'Care_CallAI';
+
+
+
 -- STEP 4: Attach each call to the customer's most-recent bill as of that call date
 ;WITH ScopedCalls AS (
     SELECT
