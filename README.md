@@ -239,6 +239,17 @@ GROUP BY IsSplitBill;
 
 
 
+;WITH CustomerSplitStatus AS (
+    SELECT DISTINCT CUST_ID, IsSplitBill
+    FROM #BillSplitFlags
+)
+SELECT
+    IsSplitBill,
+    COUNT(DISTINCT CUST_ID) AS Customers
+FROM CustomerSplitStatus
+GROUP BY IsSplitBill;
+
+
 
 
 -- STEP 3: Determine each customer's product/split-status per bill
