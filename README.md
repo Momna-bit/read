@@ -230,6 +230,15 @@ FROM CallWithBill
 WHERE rn = 1;
 
 
+SELECT
+    IsSplitBill,
+    COUNT(*) AS Calls
+FROM #CallsWithBillContext
+WHERE IsSplitBill IS NOT NULL
+GROUP BY IsSplitBill;
+
+
+
 
 
 -- STEP 3: Determine each customer's product/split-status per bill
