@@ -137,3 +137,13 @@ GROUP BY
 ORDER BY Calls DESC;
 
 
+---Step 6: checking whether iSigma_Customer_Master has a channel/enrollment-source field, so we can see if the “new enrollee removal calls” cluster around a specific sign-up channel.
+
+SELECT COLUMN_NAME, DATA_TYPE
+FROM INFORMATION_SCHEMA.COLUMNS
+WHERE TABLE_NAME = 'iSigma_Customer_Master'
+  AND (COLUMN_NAME LIKE '%channel%' 
+    OR COLUMN_NAME LIKE '%source%' 
+    OR COLUMN_NAME LIKE '%enroll%');
+
+
