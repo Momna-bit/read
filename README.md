@@ -60,3 +60,13 @@ SELECT DISTINCT [call.reason]
 FROM Care_CallAI
 WHERE [call.reason] LIKE '%autopay%' OR [call.reason] LIKE '%auto pay%' OR [call.reason] LIKE '%recurring%';
 
+
+task 5
+
+
+-- STEP 1: Size the population — how many customers called to remove autopay?
+SELECT COUNT(DISTINCT ContactID) AS RemoveAutopayCalls
+FROM Care_CallAI
+WHERE [call.reason] = 'Remove Autopay';
+
+
