@@ -183,5 +183,10 @@ WHERE cai.[call.reason] = 'Remove Autopay'
       WHERE bm2.cust_id = bm.cust_id AND bm2.Bill_Date <= cai.[Date]
   );
 
+-- STEP 9a: Confirm exact column names (Step 9 failed due to a name mismatch)
+SELECT COLUMN_NAME
+FROM INFORMATION_SCHEMA.COLUMNS
+WHERE TABLE_NAME = 'iSigma_Bill_Master'
+  AND COLUMN_NAME LIKE '%LastPaid%';
 
 
