@@ -92,3 +92,13 @@ FROM iSigma_Customer_Master
 WHERE AutoPay IS NOT NULL;
 
 
+--Step 4 Join Remove Autopay calls to Customer Autopay status 
+SELECT
+    cai.ContactID,
+    cai.[Date] AS CallDate,
+    cm.AutoPay AS CurrentAutoPayStatus,
+    cm.AutoPayEffectiveDate,
+    DATEDIFF(DAY, cm.AutoPayEffectiveDate, cai.[Date]) AS DaysOnAutopayBeforeCall
+FROM Care_CallAI cai
+JOIN iSigma_Customer_Master cm ON cm.cust_id = cai.ContactID
+WHERE cai.[call.reason] = 'Remove Autopay';
