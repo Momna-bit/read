@@ -69,4 +69,12 @@ SELECT COUNT(DISTINCT ContactID) AS RemoveAutopayCalls
 FROM Care_CallAI
 WHERE [call.reason] = 'Remove Autopay';
 
+--- step 2
+SELECT
+    FORMAT([Date], 'yyyy-MM') AS CallMonth,
+    COUNT(DISTINCT ContactID) AS RemoveAutopayCalls
+FROM Care_CallAI
+WHERE [call.reason] = 'Remove Autopay'
+GROUP BY FORMAT([Date], 'yyyy-MM')
+ORDER BY CallMonth;
 
