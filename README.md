@@ -160,5 +160,11 @@ WHERE cai.[call.reason] = 'Remove Autopay'
 GROUP BY cm.SalesChannel, cm.EnrollmentType
 ORDER BY RemovalCalls DESC;
 
+---STEP 8: Confirm the billing/charge date columns available
+SELECT COLUMN_NAME, DATA_TYPE
+FROM INFORMATION_SCHEMA.COLUMNS
+WHERE TABLE_NAME = 'iSigma_Bill_Master';
+
+
 
 
