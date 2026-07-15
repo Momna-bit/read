@@ -102,3 +102,37 @@ SELECT
 FROM Care_CallAI cai
 JOIN iSigma_Customer_Master cm ON cm.cust_id = cai.ContactID
 WHERE cai.[call.reason] = 'Remove Autopay';
+
+SELECT
+    CASE 
+        WHEN CurrentAutoPayStatus = 'No' THEN 'Currently Off (likely successfully removed)'
+        WHEN DaysOnAutopayBeforeCall < 0 THEN 'Re-enrolled after this call (history unclear)'
+        WHEN DaysOnAutopayBeforeCall <= 30 THEN 'New enrollee (0-30 days before calling)'
+        WHEN DaysOnAutopayBeforeCall <= 90 THEN 'Recent enrollee (31-90 days)'
+        WHEN DaysOnAutopayBeforeCall > 90 THEN 'Long-time autopay customer (90+ days)'
+        ELSE 'Unknown'
+    END AS Category,
+    COUNT(*) AS Calls
+FROM (
+    SELECT
+        cai.ContactID,
+        cai.[Date] AS CallDate,
+        cm.AutoPay AS CurrentAutoPayStatus,
+        DATEDIFF(DAY, cm.AutoPayEffectiveDate, cai.[Date]) AS DaysOnAutopayBeforeCall
+    FROM Care_CallAI cai
+    JOIN dbo.IVR ivr ON ivr.ContactID = cai.ContactID
+    JOIN iSigma_Customer_Master cm ON cm.cust_id = ivr.AccountNumber
+    WHERE cai.[call.reason] = 'Remove Autopay'
+) t
+GROUP BY 
+    CASE 
+        WHEN CurrentAutoPayStatus = 'No' THEN 'Currently Off (likely successfully removed)'
+        WHEN DaysOnAutopayBeforeCall < 0 THEN 'Re-enrolled after this call (history unclear)'
+        WHEN DaysOnAutopayBeforeCall <= 30 THEN 'New enrollee (0-30 days before calling)'
+        WHEN DaysOnAutopayBeforeCall <= 90 THEN 'Recent enrollee (31-90 days)'
+        WHEN DaysOnAutopayBeforeCall > 90 THEN 'Long-time autopay customer (90+ days)'
+        ELSE 'Unknown'
+    END
+ORDER BY Calls DESC;
+
+
