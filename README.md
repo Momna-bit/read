@@ -165,6 +165,23 @@ SELECT COLUMN_NAME, DATA_TYPE
 FROM INFORMATION_SCHEMA.COLUMNS
 WHERE TABLE_NAME = 'iSigma_Bill_Master';
 
+---STEP 9: Check how many days before their removal call each customer was last charged via autopay
+SELECT
+    cai.ContactID,
+    cai.[Date] AS CallDate,
+    bm.LastPaidDate,
+    bm.LastPaid,
+    DATEDIFF(DAY, bm.LastPaidDate, cai.[Date]) AS DaysSinceLastCharge
+FROM Care_CallAI cai
+JOIN dbo.IVR ivr ON ivr.ContactID = cai.ContactID
+JOIN iSigma_Bill_Master bm ON bm.cust_id = ivr.AccountNumber
+WHERE cai.[call.reason] = 'Remove Autopay'
+  AND bm.AutoPayOn = 'Yes'
+  AND bm.Bill_Date = (
+      SELECT MAX(bm2.Bill_Date)
+      FROM iSigma_Bill_Master bm2
+      WHERE bm2.cust_id = bm.cust_id AND bm2.Bill_Date <= cai.[Date]
+  );
 
 
 
