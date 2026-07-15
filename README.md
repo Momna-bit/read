@@ -165,13 +165,22 @@ SELECT COLUMN_NAME, DATA_TYPE
 FROM INFORMATION_SCHEMA.COLUMNS
 WHERE TABLE_NAME = 'iSigma_Bill_Master';
 
----STEP 9: Check how many days before their removal call each customer was last charged via autopay
+
+
+-- STEP 9a: Confirm exact column names (Step 9 failed due to a name mismatch)
+SELECT COLUMN_NAME
+FROM INFORMATION_SCHEMA.COLUMNS
+WHERE TABLE_NAME = 'iSigma_Bill_Master'
+  AND COLUMN_NAME LIKE '%LastPaid%';
+
+
+-- STEP 9: Check how many days before their removal call each customer was last charged via autopay
 SELECT
     cai.ContactID,
     cai.[Date] AS CallDate,
-    bm.LastPaidDate,
-    bm.LastPaid,
-    DATEDIFF(DAY, bm.LastPaidDate, cai.[Date]) AS DaysSinceLastCharge
+    bm.LastPaidDateiSigma,
+    bm.LastPaidiSigma,
+    DATEDIFF(DAY, bm.LastPaidDateiSigma, cai.[Date]) AS DaysSinceLastCharge
 FROM Care_CallAI cai
 JOIN dbo.IVR ivr ON ivr.ContactID = cai.ContactID
 JOIN iSigma_Bill_Master bm ON bm.cust_id = ivr.AccountNumber
@@ -182,11 +191,5 @@ WHERE cai.[call.reason] = 'Remove Autopay'
       FROM iSigma_Bill_Master bm2
       WHERE bm2.cust_id = bm.cust_id AND bm2.Bill_Date <= cai.[Date]
   );
-
--- STEP 9a: Confirm exact column names (Step 9 failed due to a name mismatch)
-SELECT COLUMN_NAME
-FROM INFORMATION_SCHEMA.COLUMNS
-WHERE TABLE_NAME = 'iSigma_Bill_Master'
-  AND COLUMN_NAME LIKE '%LastPaid%';
 
 
