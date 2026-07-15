@@ -86,4 +86,9 @@ WHERE COLUMN_NAME LIKE '%autopay%'
    OR COLUMN_NAME LIKE '%PaymentMethod%'
    OR COLUMN_NAME LIKE '%RecurringPay%';
 
+--Step 3b: Look at the Autopay fields on iSigma_Customer_Master
+SELECT TOP 20 cust_id, AutoPay, AutoPayEffectiveDate
+FROM iSigma_Customer_Master
+WHERE AutoPay IS NOT NULL;
+
 
