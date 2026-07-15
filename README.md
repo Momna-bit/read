@@ -78,3 +78,12 @@ WHERE [call.reason] = 'Remove Autopay'
 GROUP BY FORMAT([Date], 'yyyy-MM')
 ORDER BY CallMonth;
 
+-- STEP 3a: Find tables that might track autopay/payment method info
+SELECT TABLE_NAME, COLUMN_NAME
+FROM INFORMATION_SCHEMA.COLUMNS
+WHERE COLUMN_NAME LIKE '%autopay%' 
+   OR COLUMN_NAME LIKE '%auto_pay%'
+   OR COLUMN_NAME LIKE '%PaymentMethod%'
+   OR COLUMN_NAME LIKE '%RecurringPay%';
+
+
