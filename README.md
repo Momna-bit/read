@@ -103,6 +103,7 @@ FROM Care_CallAI cai
 JOIN iSigma_Customer_Master cm ON cm.cust_id = cai.ContactID
 WHERE cai.[call.reason] = 'Remove Autopay';
 
+--Step 5 : Turn this into summary buckets instead of raw rows
 SELECT
     CASE 
         WHEN CurrentAutoPayStatus = 'No' THEN 'Currently Off (likely successfully removed)'
