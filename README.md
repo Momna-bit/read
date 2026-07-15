@@ -147,3 +147,18 @@ WHERE TABLE_NAME = 'iSigma_Customer_Master'
     OR COLUMN_NAME LIKE '%enroll%');
 
 
+---STEP 7: Break down the “new enrollee” removal calls by sales channel
+SELECT
+    cm.SalesChannel,
+    cm.EnrollmentType,
+    COUNT(*) AS RemovalCalls
+FROM Care_CallAI cai
+JOIN dbo.IVR ivr ON ivr.ContactID = cai.ContactID
+JOIN iSigma_Customer_Master cm ON cm.cust_id = ivr.AccountNumber
+WHERE cai.[call.reason] = 'Remove Autopay'
+  AND DATEDIFF(DAY, cm.AutoPayEffectiveDate, cai.[Date]) BETWEEN 0 AND 30
+GROUP BY cm.SalesChannel, cm.EnrollmentType
+ORDER BY RemovalCalls DESC;
+
+
+
