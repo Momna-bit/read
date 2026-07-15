@@ -192,4 +192,42 @@ WHERE cai.[call.reason] = 'Remove Autopay'
       WHERE bm2.cust_id = bm.cust_id AND bm2.Bill_Date <= cai.[Date]
   );
 
+---STEP 10: Bucket “days since last autopay charge” into readable categories
+SELECT
+    CASE
+        WHEN DaysSinceLastCharge IS NULL THEN 'No recent autopay charge on record'
+        WHEN DaysSinceLastCharge <= 3 THEN 'Charged within 3 days of call'
+        WHEN DaysSinceLastCharge <= 7 THEN 'Charged within a week'
+        WHEN DaysSinceLastCharge <= 14 THEN 'Charged within 2 weeks'
+        WHEN DaysSinceLastCharge <= 30 THEN 'Charged within a month'
+        ELSE 'Charged over a month ago'
+    END AS ChargeTiming,
+    COUNT(*) AS Calls
+FROM (
+    SELECT
+        cai.ContactID,
+        cai.[Date] AS CallDate,
+        bm.LastPaidDateiSigma,
+        DATEDIFF(DAY, bm.LastPaidDateiSigma, cai.[Date]) AS DaysSinceLastCharge
+    FROM Care_CallAI cai
+    JOIN dbo.IVR ivr ON ivr.ContactID = cai.ContactID
+    JOIN iSigma_Bill_Master bm ON bm.cust_id = ivr.AccountNumber
+    WHERE cai.[call.reason] = 'Remove Autopay'
+      AND bm.AutoPayOn = 'Yes'
+      AND bm.Bill_Date = (
+          SELECT MAX(bm2.Bill_Date)
+          FROM iSigma_Bill_Master bm2
+          WHERE bm2.cust_id = bm.cust_id AND bm2.Bill_Date <= cai.[Date]
+      )
+) t
+GROUP BY
+    CASE
+        WHEN DaysSinceLastCharge IS NULL THEN 'No recent autopay charge on record'
+        WHEN DaysSinceLastCharge <= 3 THEN 'Charged within 3 days of call'
+        WHEN DaysSinceLastCharge <= 7 THEN 'Charged within a week'
+        WHEN DaysSinceLastCharge <= 14 THEN 'Charged within 2 weeks'
+        WHEN DaysSinceLastCharge <= 30 THEN 'Charged within a month'
+        ELSE 'Charged over a month ago'
+    END
+ORDER BY Calls DESC;
 
