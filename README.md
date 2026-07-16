@@ -357,3 +357,64 @@ SELECT
 FROM [dbo].[vw_calendarWH]
 WHERE [Date] >= '2022-07-01'
 ORDER BY [Date];
+
+
+IF OBJECT_ID('tempdb..#CallMetrics') IS NOT NULL DROP TABLE #CallMetrics;
+SELECT
+    CAST(CallDate AS DATE) AS CallDay,
+    COUNT(*) AS Calls,
+    SUM(CASE WHEN AgentTalkTime > 0 THEN 1 ELSE 0 END) AS AgentCalls,
+    COUNT(DISTINCT CASE WHEN AgentTalkTime > 0 THEN Username END) AS UniqueAgentCount,
+    AVG(CASE WHEN AgentTalkTime > 0 THEN CAST(AgentTalkTime AS FLOAT) END) AS AvgTalkTimeSeconds,
+    SUM(CASE WHEN AgentTalkTime = 0 AND QueueTime > 0 AND DisconnectReason = 'CUSTOMER_DISCONNECT' THEN 1 ELSE 0 END) AS AbandonedCalls,
+    CAST(SUM(CASE WHEN AgentTalkTime = 0 AND QueueTime > 0 AND DisconnectReason = 'CUSTOMER_DISCONNECT' THEN 1 ELSE 0 END) AS FLOAT) / COUNT(*) AS AbandonRate,
+    1.0 - (CAST(SUM(CASE WHEN AgentTalkTime > 0 THEN 1 ELSE 0 END) AS FLOAT) / COUNT(*)) AS IVRContainmentRate
+INTO #CallMetrics
+FROM dbo.IVR
+WHERE Department = 'Care'
+  AND CallType IN ('Inbound','Transfer')
+  AND CallDate >= '2022-07-01'
+GROUP BY CAST(CallDate AS DATE);
+
+IF OBJECT_ID('tempdb..#ActiveCustomers') IS NOT NULL DROP TABLE #ActiveCustomers;
+SELECT
+    cm_days.CallDay,
+    COUNT(DISTINCT cm.cust_id) AS ActiveCustomerCount
+INTO #ActiveCustomers
+FROM (SELECT DISTINCT CallDay FROM #CallMetrics) cm_days
+JOIN iSigma_Customer_Master cm
+    ON cm.Market = 'Texas'
+    AND cm.CustomerType = 'Residential'
+    AND cm.FlowStart <= cm_days.CallDay
+    AND (cm.FlowEnd IS NULL OR cm.FlowEnd >= cm_days.CallDay)
+GROUP BY cm_days.CallDay;
+
+IF OBJECT_ID('tempdb..#PastDue') IS NOT NULL DROP TABLE #PastDue;
+SELECT
+    CAST([Date] AS DATE) AS CallDay,
+    COUNT(DISTINCT CustID) AS PastDueCustomerCount
+INTO #PastDue
+FROM JESouth_CollectionAR_DailyDue
+WHERE [Date] >= '2022-07-01'
+  AND AR > 0
+GROUP BY CAST([Date] AS DATE);
+
+SELECT
+    m.CallDay,
+    m.Calls,
+    m.AgentCalls,
+    m.UniqueAgentCount,
+    ac.ActiveCustomerCount,
+    pd.PastDueCustomerCount,
+    m.IVRContainmentRate,
+    m.AbandonRate,
+    m.AvgTalkTimeSeconds,
+    cal.DayName AS Weekday,
+    CASE WHEN cal.USHoliday IS NOT NULL AND cal.USHoliday <> '' THEN 1 ELSE 0 END AS IsHoliday
+FROM #CallMetrics m
+LEFT JOIN #ActiveCustomers ac ON ac.CallDay = m.CallDay
+LEFT JOIN #PastDue pd ON pd.CallDay = m.CallDay
+LEFT JOIN [dbo].[vw_calendarWH] cal ON cal.[Date] = m.CallDay
+ORDER BY m.CallDay;
+
+
