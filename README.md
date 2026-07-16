@@ -256,3 +256,10 @@ WHERE Department = 'Care'
 GROUP BY CAST(CallDate AS DATE)
 ORDER BY CallDay;
 
+
+
+SELECT TOP 5 *
+FROM dbo.IVR
+WHERE CAST(CallDate AS DATE) = '2021-02-15'
+  AND Department = 'Care';
+
