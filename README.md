@@ -303,3 +303,13 @@ WHERE Department = 'Care'
   AND CallDate >= '2022-07-01'
 GROUP BY DisconnectReason
 ORDER BY Cnt DESC;
+
+
+-- Check how many calls fit the proposed "abandoned" definition
+SELECT COUNT(*) AS AbandonedCallsCandidate
+FROM dbo.IVR
+WHERE Department = 'Care'
+  AND CallDate >= '2022-07-01'
+  AND AgentTalkTime = 0
+  AND QueueTime > 0
+  AND DisconnectReason = 'CUSTOMER_DISCONNECT';
