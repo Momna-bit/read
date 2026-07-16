@@ -234,32 +234,21 @@ ORDER BY Calls DESC;
 
 task 4
 
+
 -- STEP 1: Daily call metrics from dbo.IVR
--- Gives one row per day: total calls, calls that reached an agent,
--- how many unique agents worked that day, and average handle time.
--- Scoped to Care department, inbound/transfer calls only (same scoping
--- used throughout Task 1-3). No date range filter yet - full history
--- pulled first so we can see how far back the data actually goes.
+-- Scoped to July 2022 onward, per Jonathan's guidance (3 full summers of data)
+-- Excludes 2021 data entirely, so historical anomalies from that period
+-- (e.g., the 70,648-call spike on 2021-02-15) don't need to be investigated.
 
 SELECT
-    CAST(CallDate AS DATE) AS CallDay,           -- one row per calendar day
-    COUNT(*) AS Calls,                            -- total Care calls that day
+    CAST(CallDate AS DATE) AS CallDay,
+    COUNT(*) AS Calls,
     SUM(CASE WHEN AgentTalkTime > 0 THEN 1 ELSE 0 END) AS AgentCalls,
-        -- calls that actually reached a human agent (had talk time > 0)
     COUNT(DISTINCT CASE WHEN AgentTalkTime > 0 THEN Username END) AS UniqueAgentCount,
-        -- distinct agents who handled at least one call that day
     AVG(CASE WHEN AgentTalkTime > 0 THEN CAST(AgentTalkTime AS FLOAT) END) AS AvgTalkTimeSeconds
-        -- average handle time, agent-answered calls only
 FROM dbo.IVR
 WHERE Department = 'Care'
   AND CallType IN ('Inbound','Transfer')
+  AND CallDate >= '2022-07-01'
 GROUP BY CAST(CallDate AS DATE)
 ORDER BY CallDay;
-
-
-
-SELECT TOP 5 *
-FROM dbo.IVR
-WHERE CAST(CallDate AS DATE) = '2021-02-15'
-  AND Department = 'Care';
-
