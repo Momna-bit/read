@@ -278,3 +278,20 @@ JOIN iSigma_Customer_Master cm
     AND (cm.FlowEnd IS NULL OR cm.FlowEnd >= d.CallDay)
 GROUP BY d.CallDay
 ORDER BY d.CallDay;
+
+
+-- STEP 3: Past-due customer count, per day
+-- Uses JESouth_CollectionAR_DailyDue, which already tracks daily
+-- collection/AR status per customer. Counts distinct customers with
+-- a positive past-due amount (AR field) on each day.
+
+SELECT
+    CAST([Date] AS DATE) AS CallDay,
+    COUNT(DISTINCT CustID) AS PastDueCustomerCount
+FROM JESouth_CollectionAR_DailyDue
+WHERE [Date] >= '2022-07-01'
+  AND AR > 0
+GROUP BY CAST([Date] AS DATE)
+ORDER BY CallDay;
+
+
