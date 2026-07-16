@@ -346,3 +346,14 @@ GROUP BY CAST(CallDate AS DATE)
 ORDER BY CallDay;
 
 
+-- STEP 5: Weekday and Holiday flags from the calendar table
+-- Confirms structure before combining - matched to CallDay via Date column
+
+SELECT
+    [Date] AS CallDay,
+    DayName,
+    USHoliday,
+    CDNHoliday
+FROM [dbo].[vw_calendarWH]
+WHERE [Date] >= '2022-07-01'
+ORDER BY [Date];
