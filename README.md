@@ -231,3 +231,28 @@ GROUP BY
     END
 ORDER BY Calls DESC;
 
+
+task 4
+
+-- STEP 1: Daily call metrics from dbo.IVR
+-- Gives one row per day: total calls, calls that reached an agent,
+-- how many unique agents worked that day, and average handle time.
+-- Scoped to Care department, inbound/transfer calls only (same scoping
+-- used throughout Task 1-3). No date range filter yet - full history
+-- pulled first so we can see how far back the data actually goes.
+
+SELECT
+    CAST(CallDate AS DATE) AS CallDay,           -- one row per calendar day
+    COUNT(*) AS Calls,                            -- total Care calls that day
+    SUM(CASE WHEN AgentTalkTime > 0 THEN 1 ELSE 0 END) AS AgentCalls,
+        -- calls that actually reached a human agent (had talk time > 0)
+    COUNT(DISTINCT CASE WHEN AgentTalkTime > 0 THEN Username END) AS UniqueAgentCount,
+        -- distinct agents who handled at least one call that day
+    AVG(CASE WHEN AgentTalkTime > 0 THEN CAST(AgentTalkTime AS FLOAT) END) AS AvgTalkTimeSeconds
+        -- average handle time, agent-answered calls only
+FROM dbo.IVR
+WHERE Department = 'Care'
+  AND CallType IN ('Inbound','Transfer')
+GROUP BY CAST(CallDate AS DATE)
+ORDER BY CallDay;
+
