@@ -252,3 +252,29 @@ WHERE Department = 'Care'
   AND CallDate >= '2022-07-01'
 GROUP BY CAST(CallDate AS DATE)
 ORDER BY CallDay;
+
+
+-- STEP 2: Active customer count, per day
+-- For every day in the call data (2022-07-01 onward), counts how many
+-- Texas Residential customers were active ON THAT SPECIFIC DAY - meaning
+-- their FlowStart was on or before that day, and they either haven't left
+-- yet (FlowEnd IS NULL) or their FlowEnd hasn't happened yet.
+
+;WITH DateRange AS (
+    SELECT CAST(CallDate AS DATE) AS CallDay
+    FROM dbo.IVR
+    WHERE Department = 'Care'
+      AND CallDate >= '2022-07-01'
+    GROUP BY CAST(CallDate AS DATE)
+)
+SELECT
+    d.CallDay,
+    COUNT(DISTINCT cm.cust_id) AS ActiveCustomerCount
+FROM DateRange d
+JOIN iSigma_Customer_Master cm
+    ON cm.Market = 'Texas'
+    AND cm.CustomerType = 'Residential'
+    AND cm.FlowStart <= d.CallDay
+    AND (cm.FlowEnd IS NULL OR cm.FlowEnd >= d.CallDay)
+GROUP BY d.CallDay
+ORDER BY d.CallDay;
