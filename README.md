@@ -313,3 +313,36 @@ WHERE Department = 'Care'
   AND AgentTalkTime = 0
   AND QueueTime > 0
   AND DisconnectReason = 'CUSTOMER_DISCONNECT';
+
+
+-- STEP 4: Abandon rate and IVR containment rate, per day
+-- Abandoned = customer hung up (CUSTOMER_DISCONNECT) while in queue
+-- (QueueTime > 0) without ever reaching an agent (AgentTalkTime = 0).
+-- IVR containment = resolved without ever reaching an agent, i.e. the
+-- inverse of AgentCalls / Calls from Step 1.
+
+SELECT
+    CAST(CallDate AS DATE) AS CallDay,
+    COUNT(*) AS Calls,
+    SUM(CASE WHEN AgentTalkTime > 0 THEN 1 ELSE 0 END) AS AgentCalls,
+    SUM(CASE 
+            WHEN AgentTalkTime = 0 
+             AND QueueTime > 0 
+             AND DisconnectReason = 'CUSTOMER_DISCONNECT' 
+            THEN 1 ELSE 0 
+        END) AS AbandonedCalls,
+    CAST(SUM(CASE 
+            WHEN AgentTalkTime = 0 
+             AND QueueTime > 0 
+             AND DisconnectReason = 'CUSTOMER_DISCONNECT' 
+            THEN 1 ELSE 0 
+        END) AS FLOAT) / COUNT(*) AS AbandonRate,
+    1.0 - (CAST(SUM(CASE WHEN AgentTalkTime > 0 THEN 1 ELSE 0 END) AS FLOAT) / COUNT(*)) AS IVRContainmentRate
+FROM dbo.IVR
+WHERE Department = 'Care'
+  AND CallType IN ('Inbound','Transfer')
+  AND CallDate >= '2022-07-01'
+GROUP BY CAST(CallDate AS DATE)
+ORDER BY CallDay;
+
+
