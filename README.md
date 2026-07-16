@@ -295,3 +295,11 @@ GROUP BY CAST([Date] AS DATE)
 ORDER BY CallDay;
 
 
+-- Check what values exist in DisconnectReason, to find the right
+-- definition for "abandoned" before building Step 4
+SELECT DISTINCT DisconnectReason, COUNT(*) AS Cnt
+FROM dbo.IVR
+WHERE Department = 'Care'
+  AND CallDate >= '2022-07-01'
+GROUP BY DisconnectReason
+ORDER BY Cnt DESC;
