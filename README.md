@@ -500,3 +500,34 @@ WHERE Usage >= 1
   AND NetCharge > 0 
   AND NetCharge < 2000;
 
+--Option B
+-- Get each bill-explanation caller's most recent bill (as of call date),
+-- using the same cleaned bounds (Usage >= 1, NetCharge between 0 and 2000)
+-- to keep it comparable to the baseline median we just calculated.
+
+;WITH CallerBills AS (
+    SELECT
+        cai.ContactID,
+        cai.[Date] AS CallDate,
+        bm.NetCharge,
+        bm.Usage,
+        (bm.NetCharge / bm.Usage) * 100 AS EffectiveRate
+    FROM Care_CallAI cai
+    JOIN dbo.IVR ivr ON ivr.ContactID = cai.ContactID
+    JOIN iSigma_Bill_Master bm ON bm.cust_id = ivr.AccountNumber
+    WHERE cai.[call.reason] = 'Bill Explanation'
+      AND bm.Usage >= 1
+      AND bm.NetCharge > 0
+      AND bm.NetCharge < 2000
+      AND bm.Bill_Date = (
+          SELECT MAX(bm2.Bill_Date)
+          FROM iSigma_Bill_Master bm2
+          WHERE bm2.cust_id = bm.cust_id AND bm2.Bill_Date <= cai.[Date]
+      )
+)
+SELECT DISTINCT
+    PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY EffectiveRate) 
+        OVER () AS MedianEffectiveRate_BillExplanationCallers
+FROM CallerBills;
+
+
