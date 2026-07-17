@@ -530,4 +530,45 @@ SELECT DISTINCT
         OVER () AS MedianEffectiveRate_BillExplanationCallers
 FROM CallerBills;
 
+-- STEP 1: For bill-explanation callers, compare their bill at time of call
+-- to their own historical average bill (their personal norm), to calculate
+-- a "bill increase %" - this is the "bill shock" metric Jonathan described,
+-- not just comparing to other customers.
+
+;WITH CallerBillAtCall AS (
+    SELECT
+        cai.ContactID,
+        cai.[Date] AS CallDate,
+        bm.cust_id,
+        bm.Bill_No,
+        bm.NetCharge AS BillAmountAtCall
+    FROM Care_CallAI cai
+    JOIN dbo.IVR ivr ON ivr.ContactID = cai.ContactID
+    JOIN iSigma_Bill_Master bm ON bm.cust_id = ivr.AccountNumber
+    WHERE cai.[call.reason] = 'Bill Explanation'
+      AND bm.NetCharge > 0
+      AND bm.Bill_Date = (
+          SELECT MAX(bm2.Bill_Date)
+          FROM iSigma_Bill_Master bm2
+          WHERE bm2.cust_id = bm.cust_id AND bm2.Bill_Date <= cai.[Date]
+      )
+),
+CustomerHistoricalAvg AS (
+    SELECT
+        cust_id,
+        AVG(NetCharge) AS AvgHistoricalBill
+    FROM iSigma_Bill_Master
+    WHERE NetCharge > 0
+    GROUP BY cust_id
+)
+SELECT TOP 20
+    c.ContactID,
+    c.CallDate,
+    c.cust_id,
+    c.BillAmountAtCall,
+    h.AvgHistoricalBill,
+    (c.BillAmountAtCall - h.AvgHistoricalBill) / h.AvgHistoricalBill * 100 AS PctIncreaseVsPersonalAvg
+FROM CallerBillAtCall c
+JOIN CustomerHistoricalAvg h ON h.cust_id = c.cust_id
+ORDER BY PctIncreaseVsPersonalAvg DESC;
 
