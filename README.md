@@ -488,3 +488,15 @@ SELECT DISTINCT
 FROM iSigma_Bill_Master
 WHERE Usage > 0 AND NetCharge > 0;
 
+
+-- Recompute median with sensible bounds to exclude data artifacts
+-- Usage < 1 kWh is almost certainly bad data, not a real bill
+-- NetCharge > $2000 likely indicates a commercial/aggregated account, not typical residential
+SELECT DISTINCT
+    PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY (NetCharge / Usage) * 100) 
+        OVER () AS MedianEffectiveRate_Cleaned
+FROM iSigma_Bill_Master
+WHERE Usage >= 1 
+  AND NetCharge > 0 
+  AND NetCharge < 2000;
+
