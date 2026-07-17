@@ -612,3 +612,40 @@ JOIN (SELECT DISTINCT cust_id, MedianHistoricalBill FROM CustomerHistoricalMedia
 ORDER BY PctIncreaseVsPersonalMedian DESC;
 
 
+-- STEP 3: Step 2's top-20 sort showed a math artifact, not bad data -
+-- small historical bills (e.g. $11-16) inflate any % increase. Raised
+-- floor to $30 and switched to ONE summary number: median % increase
+-- across ALL callers, instead of chasing extremes.
+
+;WITH CallerBillAtCall AS (
+    SELECT
+        cai.ContactID,
+        cai.[Date] AS CallDate,
+        bm.cust_id,
+        bm.NetCharge AS BillAmountAtCall
+    FROM Care_CallAI cai
+    JOIN dbo.IVR ivr ON ivr.ContactID = cai.ContactID
+    JOIN iSigma_Bill_Master bm ON bm.cust_id = ivr.AccountNumber
+    WHERE cai.[call.reason] = 'Bill Explanation'
+      AND bm.NetCharge > 0
+      AND bm.Bill_Date = (
+          SELECT MAX(bm2.Bill_Date)
+          FROM iSigma_Bill_Master bm2
+          WHERE bm2.cust_id = bm.cust_id AND bm2.Bill_Date <= cai.[Date]
+      )
+),
+CustomerHistoricalMedian AS (
+    SELECT DISTINCT
+        cust_id,
+        PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY NetCharge) OVER (PARTITION BY cust_id) AS MedianHistoricalBill
+    FROM iSigma_Bill_Master
+    WHERE NetCharge > 30
+      AND Usage >= 1
+)
+SELECT DISTINCT
+    PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY (c.BillAmountAtCall - h.MedianHistoricalBill) / h.MedianHistoricalBill * 100) 
+        OVER () AS MedianPctIncrease_AllCallers
+FROM CallerBillAtCall c
+JOIN CustomerHistoricalMedian h ON h.cust_id = c.cust_id;
+
+
