@@ -1,3 +1,4 @@
+
 Pehle terminal dekh -> git bash
 
 (step by step check karna. Example node -v likh ke hit enter)
@@ -649,29 +650,10 @@ FROM CallerBillAtCall c
 JOIN CustomerHistoricalMedian h ON h.cust_id = c.cust_id;
 
 
--- STEP 4: Credit score (median) and tenure (distribution) for
--- bill-explanation callers, using each customer's most recent bill's
--- cust_id joined to iSigma_Customer_Master.
-
-;WITH CallerCustomers AS (
-    SELECT DISTINCT
-        bm.cust_id
-    FROM Care_CallAI cai
-    JOIN dbo.IVR ivr ON ivr.ContactID = cai.ContactID
-    JOIN iSigma_Bill_Master bm ON bm.cust_id = ivr.AccountNumber
-    WHERE cai.[call.reason] = 'Bill Explanation'
-      AND bm.NetCharge > 0
-      AND bm.Bill_Date = (
-          SELECT MAX(bm2.Bill_Date)
-          FROM iSigma_Bill_Master bm2
-          WHERE bm2.cust_id = bm.cust_id AND bm2.Bill_Date <= cai.[Date]
-      )
-)
-SELECT
-    cm.Tenure,
-    COUNT(*) AS Customers,
-    AVG(CAST(cm.CreditScore AS FLOAT)) AS AvgCreditScore
-FROM CallerCustomers cc
-JOIN iSigma_Customer_Master cm ON cm.cust_id = cc.cust_id
-GROUP BY cm.Tenure
-ORDER BY Customers DESC;
+-- -- STEP 4a: Confirm actual column name for tenure on iSigma_Customer_Master
+SELECT COLUMN_NAME, DATA_TYPE
+FROM INFORMATION_SCHEMA.COLUMNS
+WHERE TABLE_NAME = 'iSigma_Customer_Master'
+  AND COLUMN_NAME LIKE '%tenure%'
+   OR COLUMN_NAME LIKE '%enroll%'
+   OR COLUMN_NAME LIKE '%start%date%';
