@@ -733,7 +733,7 @@ GROUP BY
 ORDER BY MIN(DATEDIFF(DAY, cm.FlowStart, cc.[Date]));
 
 
--- STEP 5-count (tightened): Narrower thresholds for a true high-likelihood target list
+-- STEP 5-count (v3): CreditScore tightened to <= 500
 WITH CustomerBillAtCall AS (
     SELECT
         bm.cust_id,
@@ -761,20 +761,9 @@ FlaggedCustomers AS (
     WHERE cba.EffectiveRateCents >= 20
       AND cba.EffectiveRateCents <= 50
       AND ((cba.BillAmountAtCall - h.MedianHistoricalBill) / NULLIF(h.MedianHistoricalBill, 0)) * 100 >= 20
-      AND cm.CreditScore <= 700
+      AND cm.CreditScore <= 500
       AND cm.CreditScore > 0
       AND cm.FlowStart IS NOT NULL
 )
 SELECT COUNT(*) AS TotalFlaggedCustomers FROM FlaggedCustomers;
-
-
--- Just testing credit score impact in isolation
-SELECT COUNT(*) AS CustomersUnder600
-FROM iSigma_Customer_Master
-WHERE CreditScore <= 600 AND CreditScore > 0;
-
-SELECT COUNT(*) AS CustomersUnder500
-FROM iSigma_Customer_Master
-WHERE CreditScore <= 500 AND CreditScore > 0;
-
 
