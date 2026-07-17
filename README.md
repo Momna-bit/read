@@ -757,9 +757,18 @@ CustomerHistoricalMedian AS (
     WHERE NetCharge > 0
       AND Usage >= 1
 )
+
+
 SELECT DISTINCT
     cba.cust_id,
     cba.EffectiveRateCents,
-    ROUND(((cba.BillAmountAtCall - h.MedianHistoricalBill) / NULLIF(h.MedianHistoricalBill, 0)) * 100, 2) AS PctIncreaseVsM
-
-
+    ROUND(((cba.BillAmountAtCall - h.MedianHistoricalBill) / NULLIF(h.MedianHistoricalBill, 0)) * 100, 2) AS PctIncreaseVsMedian,
+    DATEDIFF(DAY, cm.FlowStart, cba.Bill_Date) AS TenureDays,
+    cm.CreditScore
+FROM CustomerBillAtCall cba
+JOIN CustomerHistoricalMedian h ON h.cust_id = cba.cust_id
+JOIN iSigma_Customer_Master cm ON cm.cust_id = cba.cust_id
+WHERE cba.EffectiveRateCents >= 17
+  AND ((cba.BillAmountAtCall - h.MedianHistoricalBill) / NULLIF(h.MedianHistoricalBill, 0)) * 100 >= 8
+  AND cm.CreditScore <= 700
+  AND cm.FlowStart IS NOT NULL;
