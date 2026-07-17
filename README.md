@@ -667,3 +667,10 @@ WHERE TABLE_NAME = 'iSigma_Customer_Master'
     OR COLUMN_NAME LIKE '%enroll%'
     OR COLUMN_NAME LIKE '%start%'
     OR COLUMN_NAME LIKE '%co_start%');
+
+-- STEP 4e-check: Confirm CreditScore column exists
+SELECT COLUMN_NAME, DATA_TYPE
+FROM INFORMATION_SCHEMA.COLUMNS
+WHERE TABLE_NAME = 'iSigma_Customer_Master'
+  AND COLUMN_NAME LIKE '%credit%';
+
