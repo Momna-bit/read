@@ -772,3 +772,10 @@ WHERE cba.EffectiveRateCents >= 17
   AND ((cba.BillAmountAtCall - h.MedianHistoricalBill) / NULLIF(h.MedianHistoricalBill, 0)) * 100 >= 8
   AND cm.CreditScore <= 700
   AND cm.FlowStart IS NOT NULL;
+
+
+-- Quick check: how common is CreditScore = 0 across all customers?
+SELECT
+    COUNT(*) AS TotalCustomers,
+    SUM(CASE WHEN CreditScore = 0 THEN 1 ELSE 0 END) AS ZeroScoreCount
+FROM iSigma_Customer_Master;
