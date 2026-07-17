@@ -572,3 +572,43 @@ FROM CallerBillAtCall c
 JOIN CustomerHistoricalAvg h ON h.cust_id = c.cust_id
 ORDER BY PctIncreaseVsPersonalAvg DESC;
 
+
+---step 2
+;WITH CallerBillAtCall AS (
+    SELECT
+        cai.ContactID,
+        cai.[Date] AS CallDate,
+        bm.cust_id,
+        bm.Bill_No,
+        bm.NetCharge AS BillAmountAtCall
+    FROM Care_CallAI cai
+    JOIN dbo.IVR ivr ON ivr.ContactID = cai.ContactID
+    JOIN iSigma_Bill_Master bm ON bm.cust_id = ivr.AccountNumber
+    WHERE cai.[call.reason] = 'Bill Explanation'
+      AND bm.NetCharge > 0
+      AND bm.Bill_Date = (
+          SELECT MAX(bm2.Bill_Date)
+          FROM iSigma_Bill_Master bm2
+          WHERE bm2.cust_id = bm.cust_id AND bm2.Bill_Date <= cai.[Date]
+      )
+),
+CustomerHistoricalMedian AS (
+    SELECT
+        cust_id,
+        PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY NetCharge) OVER (PARTITION BY cust_id) AS MedianHistoricalBill
+    FROM iSigma_Bill_Master
+    WHERE NetCharge > 10  -- excludes near-zero junk bills
+      AND Usage >= 1
+)
+SELECT TOP 20
+    c.ContactID,
+    c.CallDate,
+    c.cust_id,
+    c.BillAmountAtCall,
+    h.MedianHistoricalBill,
+    (c.BillAmountAtCall - h.MedianHistoricalBill) / h.MedianHistoricalBill * 100 AS PctIncreaseVsPersonalMedian
+FROM CallerBillAtCall c
+JOIN (SELECT DISTINCT cust_id, MedianHistoricalBill FROM CustomerHistoricalMedian) h ON h.cust_id = c.cust_id
+ORDER BY PctIncreaseVsPersonalMedian DESC;
+
+
