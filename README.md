@@ -417,4 +417,33 @@ LEFT JOIN #PastDue pd ON pd.CallDay = m.CallDay
 LEFT JOIN [dbo].[vw_calendarWH] cal ON cal.[Date] = m.CallDay
 ORDER BY m.CallDay;
 
+task 3 followup
+
+-- STEP 1: Look at real sample data for the bill-amount fields before
+-- assuming which one represents "total bill." Jonathan defined effective
+-- rate as (total bill excluding past-due carryover) / usage in kWh, so we
+-- need to confirm which column is the actual total due for that bill
+-- (inv_amount vs NetCharge could mean different things - gross vs net of
+-- adjustments) and confirm PriorPastDue is really the carryover amount to
+-- subtract, not something else.
+
+SELECT TOP 20
+    Bill_No,
+    cust_id,
+    Bill_Date,
+    Product,
+    inv_amount,
+    NetCharge,
+    CommodityRevenue,
+    AdminRevenue,
+    TDSP,
+    PriorPastDue,
+    PastDue,
+    Usage
+FROM iSigma_Bill_Master
+WHERE Usage > 0
+ORDER BY Bill_Date DESC;
+
+
+
 
