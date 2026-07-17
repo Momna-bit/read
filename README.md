@@ -668,9 +668,29 @@ WHERE TABLE_NAME = 'iSigma_Customer_Master'
     OR COLUMN_NAME LIKE '%start%'
     OR COLUMN_NAME LIKE '%co_start%');
 
--- STEP 4e-check: Confirm CreditScore column exists
-SELECT COLUMN_NAME, DATA_TYPE
-FROM INFORMATION_SCHEMA.COLUMNS
-WHERE TABLE_NAME = 'iSigma_Customer_Master'
-  AND COLUMN_NAME LIKE '%credit%';
+-- STEP 4e: Calculate tenure using FlowStart, join to CallerCustomers
+WITH CallerCustomers AS (
+    SELECT DISTINCT
+        ivr.AccountNumber AS cust_id,
+        cai.[Date]
+    FROM Care_CallAI cai
+    JOIN dbo.IVR ivr ON ivr.ContactID = cai.ContactID
+    JOIN iSigma_Bill_Master bm ON bm.cust_id = ivr.AccountNumber
+    WHERE cai.[call.reason] = 'Bill Explanation'
+      AND bm.NetCharge > 0
+      AND bm.Bill_Date = (
+          SELECT MAX(bm2.Bill_Date)
+          FROM iSigma_Bill_Master bm2
+          WHERE bm2.cust_id = bm.cust_id AND bm2.Bill_Date <= cai.[Date]
+      )
+)
+SELECT
+    DATEDIFF(DAY, cm.FlowStart, cc.[Date]) AS TenureDays,
+    COUNT(*) AS Customers,
+    AVG(CAST(cm.CreditScore AS FLOAT)) AS AvgCreditScore
+FROM CallerCustomers cc
+JOIN iSigma_Customer_Master cm ON cm.cust_id = cc.cust_id
+WHERE cm.FlowStart IS NOT NULL
+GROUP BY DATEDIFF(DAY, cm.FlowStart, cc.[Date])
+ORDER BY TenureDays;
 
