@@ -767,3 +767,37 @@ FlaggedCustomers AS (
 )
 SELECT COUNT(*) AS TotalFlaggedCustomers FROM FlaggedCustomers;
 
+
+-- STEP 6: Spot-check a sample of flagged customers with their actual values
+WITH CustomerBillAtCall AS (
+    SELECT
+        bm.cust_id,
+        bm.NetCharge AS BillAmountAtCall,
+        (bm.NetCharge / NULLIF(bm.Usage, 0)) * 100 AS EffectiveRateCents,
+        bm.Bill_Date
+    FROM iSigma_Bill_Master bm
+    WHERE bm.NetCharge > 0
+      AND bm.Usage >= 1
+),
+CustomerHistoricalMedian AS (
+    SELECT
+        cust_id,
+        PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY NetCharge) OVER (PARTITION BY cust_id) AS MedianHistoricalBill
+    FROM iSigma_Bill_Master
+    WHERE NetCharge > 0
+      AND Usage >= 1
+)
+SELECT TOP 20
+    cba.cust_id,
+    cba.BillAmountAtCall,
+    ROUND(cba.EffectiveRateCents, 2) AS EffectiveRateCents,
+    ROUND(h.MedianHistoricalBill, 2) AS MedianHistoricalBill,
+    ROUND(((cba.BillAmountAtCall - h.MedianHistoricalBill) / NULLIF(h.MedianHistoricalBill, 0)) * 100, 2) AS PctIncreaseVsMedian,
+    DATEDIFF(DAY, cm.FlowStart, cba.Bill_Date) AS TenureDays,
+    cm.CreditScore
+FROM CustomerBillAtCall cba
+JOIN CustomerHistoricalMedian h ON h.cust_id = cba.cust_id
+JOIN iSigma_Customer_Master cm ON cm.cust_id = cba.cust_id
+WHERE cba.EffectiveRateCents >= 20
+  AND cba.EffectiveRateCents 
+
