@@ -1,4 +1,4 @@
-
+	
 Pehle terminal dekh -> git bash
 
 (step by step check karna. Example node -v likh ke hit enter)
@@ -659,27 +659,8 @@ WHERE TABLE_NAME = 'iSigma_Customer_Master'
    OR COLUMN_NAME LIKE '%start%date%';
 
 
-WITH CallerCustomers AS (
-    SELECT DISTINCT
-        ivr.AccountNumber AS cust_id,
-        cai.[Date]
-    FROM Care_CallAI cai
-    JOIN dbo.IVR ivr ON ivr.ContactID = cai.ContactID
-    JOIN iSigma_Bill_Master bm ON bm.cust_id = ivr.AccountNumber
-    WHERE cai.[call.reason] = 'Bill Explanation'
-      AND bm.NetCharge > 0
-      AND bm.Bill_Date = (
-          SELECT MAX(bm2.Bill_Date)
-          FROM iSigma_Bill_Master bm2
-          WHERE bm2.cust_id = bm.cust_id AND bm2.Bill_Date <= cai.[Date]
-      )
-)
-SELECT
-    DATEDIFF(DAY, cm.CO_START_DATE, cc.[Date]) AS TenureDays,
-    COUNT(*) AS Customers,
-    AVG(CAST(cm.CreditScore AS FLOAT)) AS AvgCreditScore
-FROM CallerCustomers cc
-JOIN iSigma_Customer_Master cm ON cm.cust_id = cc.cust_id
-GROUP BY DATEDIFF(DAY, cm.CO_START_DATE, cc.[Date])
-ORDER BY TenureDays;
-
+-- STEP 4c: Check schema for iSigma_Customer_Master and confirm CO_START_DATE's home
+SELECT TABLE_SCHEMA, TABLE_NAME, COLUMN_NAME, DATA_TYPE
+FROM INFORMATION_SCHEMA.COLUMNS
+WHERE TABLE_NAME = 'iSigma_Customer_Master'
+  AND COLUMN_NAME = 'CO_START_DATE';
