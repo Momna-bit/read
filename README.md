@@ -767,3 +767,14 @@ FlaggedCustomers AS (
 )
 SELECT COUNT(*) AS TotalFlaggedCustomers FROM FlaggedCustomers;
 
+
+-- Just testing credit score impact in isolation
+SELECT COUNT(*) AS CustomersUnder600
+FROM iSigma_Customer_Master
+WHERE CreditScore <= 600 AND CreditScore > 0;
+
+SELECT COUNT(*) AS CustomersUnder500
+FROM iSigma_Customer_Master
+WHERE CreditScore <= 500 AND CreditScore > 0;
+
+
