@@ -468,3 +468,23 @@ SELECT
     CAST(SUM(CASE WHEN (NetCharge / Usage) * 100 >= 17 THEN 1 ELSE 0 END) AS FLOAT) / COUNT(*) AS PctAboveThreshold
 FROM iSigma_Bill_Master
 WHERE Usage > 0 AND NetCharge > 0;
+
+--Let’s check this directly before trusting either number:
+-- Check for outliers: bills with very low usage that could be inflating the average
+SELECT TOP 20
+    Bill_No,
+    cust_id,
+    NetCharge,
+    Usage,
+    (NetCharge / Usage) * 100 AS EffectiveRateCentsPerKWh
+FROM iSigma_Bill_Master
+WHERE Usage > 0 AND NetCharge > 0
+ORDER BY (NetCharge / Usage) * 100 DESC;
+
+--the median instead of the average, which is far more resistant to outliers:
+SELECT DISTINCT
+    PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY (NetCharge / Usage) * 100) 
+        OVER () AS MedianEffectiveRate
+FROM iSigma_Bill_Master
+WHERE Usage > 0 AND NetCharge > 0;
+
