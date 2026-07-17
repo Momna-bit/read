@@ -733,8 +733,7 @@ GROUP BY
 ORDER BY MIN(DATEDIFF(DAY, cm.FlowStart, cc.[Date]));
 
 
-
--- STEP 5-count: Get total row count for the targeting model
+-- STEP 5-count (tightened): Narrower thresholds for a true high-likelihood target list
 WITH CustomerBillAtCall AS (
     SELECT
         bm.cust_id,
@@ -759,11 +758,12 @@ FlaggedCustomers AS (
     FROM CustomerBillAtCall cba
     JOIN CustomerHistoricalMedian h ON h.cust_id = cba.cust_id
     JOIN iSigma_Customer_Master cm ON cm.cust_id = cba.cust_id
-    WHERE cba.EffectiveRateCents >= 17
+    WHERE cba.EffectiveRateCents >= 20
       AND cba.EffectiveRateCents <= 50
-      AND ((cba.BillAmountAtCall - h.MedianHistoricalBill) / NULLIF(h.MedianHistoricalBill, 0)) * 100 >= 8
+      AND ((cba.BillAmountAtCall - h.MedianHistoricalBill) / NULLIF(h.MedianHistoricalBill, 0)) * 100 >= 20
       AND cm.CreditScore <= 700
       AND cm.CreditScore > 0
       AND cm.FlowStart IS NOT NULL
 )
 SELECT COUNT(*) AS TotalFlaggedCustomers FROM FlaggedCustomers;
+
