@@ -445,5 +445,19 @@ WHERE Usage > 0
 ORDER BY Bill_Date DESC;
 
 
+-- STEP 2: Calculate effective rate (NetCharge / Usage, in cents per kWh)
+-- Excludes past-due carryover per Jonathan's definition. Excludes bills
+-- with NetCharge <= 0 (credits/adjustments, not real usage charges).
+SELECT TOP 20
+    Bill_No,
+    cust_id,
+    Bill_Date,
+    NetCharge,
+    Usage,
+    (NetCharge / Usage) * 100 AS EffectiveRateCentsPerKWh
+FROM iSigma_Bill_Master
+WHERE Usage > 0
+  AND NetCharge > 0
+ORDER BY Bill_Date DESC;
 
 
