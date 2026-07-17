@@ -799,5 +799,10 @@ FROM CustomerBillAtCall cba
 JOIN CustomerHistoricalMedian h ON h.cust_id = cba.cust_id
 JOIN iSigma_Customer_Master cm ON cm.cust_id = cba.cust_id
 WHERE cba.EffectiveRateCents >= 20
-  AND cba.EffectiveRateCents 
+  AND cba.EffectiveRateCents <= 50
+  AND ((cba.BillAmountAtCall - h.MedianHistoricalBill) / NULLIF(h.MedianHistoricalBill, 0)) * 100 >= 20
+  AND cm.CreditScore <= 500
+  AND cm.CreditScore > 0
+  AND cm.FlowStart IS NOT NULL
+ORDER BY NEWID();
 
