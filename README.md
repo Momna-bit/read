@@ -659,12 +659,6 @@ WHERE TABLE_NAME = 'iSigma_Customer_Master'
    OR COLUMN_NAME LIKE '%start%date%';
 
 
-WHERE TABLE_NAME = 'iSigma_Customer_Master'
-  AND COLUMN_NAME LIKE '%tenure%'
-  OR COLUMN_NAME LIKE '%enroll%'
-  OR COLUMN_NAME LIKE '%start%date%'
-
-
 -- STEP 4d: Correctly scoped search for tenure/enrollment start date on iSigma_Customer_Master
 SELECT TABLE_SCHEMA, TABLE_NAME, COLUMN_NAME, DATA_TYPE
 FROM INFORMATION_SCHEMA.COLUMNS
