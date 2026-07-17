@@ -806,3 +806,13 @@ WHERE cba.EffectiveRateCents >= 20
   AND cm.FlowStart IS NOT NULL
 ORDER BY NEWID();
 
+
+-- Check billing history for the outlier customer
+SELECT
+    cust_id,
+    Bill_Date,
+    NetCharge,
+    Usage
+FROM iSigma_Bill_Master
+WHERE cust_id = 1502110268
+ORDER BY Bill_Date;
