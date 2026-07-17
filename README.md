@@ -659,6 +659,11 @@ WHERE TABLE_NAME = 'iSigma_Customer_Master'
    OR COLUMN_NAME LIKE '%start%date%';
 
 -- STEP 4b: Replace cm.Tenure with a calculated tenure from CO_START_DATE
+WITH CallerCustomers AS (
+    -- (your existing CTE body from lines ~230-245 in the original query,
+    -- the one that joins cai/ivr/bm and defines cust_id and Date)
+    ...
+)
 SELECT
     DATEDIFF(DAY, cm.CO_START_DATE, cc.[Date]) AS TenureDays,
     COUNT(*) AS Customers,
