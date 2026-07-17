@@ -658,17 +658,29 @@ WHERE TABLE_NAME = 'iSigma_Customer_Master'
    OR COLUMN_NAME LIKE '%enroll%'
    OR COLUMN_NAME LIKE '%start%date%';
 
--- STEP 4b: Replace cm.Tenure with a calculated tenure from CO_START_DATE
-WITH CallerCustomers AS (
-    -- (your existing CTE body from lines ~230-245 in the original query,
-    -- the one that joins cai/ivr/bm and defines cust_id and Date)
-    ...
+-- STEP 4: Credit score (median) and tenure (distribution) for
+-- bill-explanation callers, using each customer's most recent bill's
+-- cust_id joined to iSigma_Customer_Master.
+
+;WITH CallerCustomers AS (
+    SELECT DISTINCT
+        bm.cust_id
+    FROM Care_CallAI cai
+    JOIN dbo.IVR ivr ON ivr.ContactID = cai.ContactID
+    JOIN iSigma_Bill_Master bm ON bm.cust_id = ivr.AccountNumber
+    WHERE cai.[call.reason] = 'Bill Explanation'
+      AND bm.NetCharge > 0
+      AND bm.Bill_Date = (
+          SELECT MAX(bm2.Bill_Date)
+          FROM iSigma_Bill_Master bm2
+          WHERE bm2.cust_id = bm.cust_id AND bm2.Bill_Date <= cai.[Date]
+      )
 )
 SELECT
-    DATEDIFF(DAY, cm.CO_START_DATE, cc.[Date]) AS TenureDays,
+    cm.Tenure,
     COUNT(*) AS Customers,
     AVG(CAST(cm.CreditScore AS FLOAT)) AS AvgCreditScore
 FROM CallerCustomers cc
 JOIN iSigma_Customer_Master cm ON cm.cust_id = cc.cust_id
-GROUP BY DATEDIFF(DAY, cm.CO_START_DATE, cc.[Date])
-ORDER BY TenureDays;
+GROUP BY cm.Tenure
+ORDER BY Customers DESC;
