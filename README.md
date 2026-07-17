@@ -732,13 +732,9 @@ GROUP BY
     END
 ORDER BY MIN(DATEDIFF(DAY, cm.FlowStart, cc.[Date]));
 
--- STEP 5: Combined usage-alert targeting model
--- Flags customers likely to call about usage/bill confusion using:
---   1. Effective rate vs. baseline (validated: ~18.79¢/kWh callers vs ~14.17¢/kWh baseline)
---   2. Bill increase % vs. personal historical median (validated: ~8.07% median for callers)
---   3. Tenure (informational only — no clean high-risk window found)
---   4. Credit score (placeholder threshold — confirm scale/cutoff with Jonathan)
 
+
+-- STEP 5-count: Get total row count for the targeting model
 WITH CustomerBillAtCall AS (
     SELECT
         bm.cust_id,
@@ -756,33 +752,18 @@ CustomerHistoricalMedian AS (
     FROM iSigma_Bill_Master
     WHERE NetCharge > 0
       AND Usage >= 1
+),
+FlaggedCustomers AS (
+    SELECT DISTINCT
+        cba.cust_id
+    FROM CustomerBillAtCall cba
+    JOIN CustomerHistoricalMedian h ON h.cust_id = cba.cust_id
+    JOIN iSigma_Customer_Master cm ON cm.cust_id = cba.cust_id
+    WHERE cba.EffectiveRateCents >= 17
+      AND cba.EffectiveRateCents <= 50
+      AND ((cba.BillAmountAtCall - h.MedianHistoricalBill) / NULLIF(h.MedianHistoricalBill, 0)) * 100 >= 8
+      AND cm.CreditScore <= 700
+      AND cm.CreditScore > 0
+      AND cm.FlowStart IS NOT NULL
 )
-
-
-SELECT DISTINCT
-    cba.cust_id,
-    cba.EffectiveRateCents,
-    ROUND(((cba.BillAmountAtCall - h.MedianHistoricalBill) / NULLIF(h.MedianHistoricalBill, 0)) * 100, 2) AS PctIncreaseVsMedian,
-    DATEDIFF(DAY, cm.FlowStart, cba.Bill_Date) AS TenureDays,
-    cm.CreditScore
-FROM CustomerBillAtCall cba
-JOIN CustomerHistoricalMedian h ON h.cust_id = cba.cust_id
-JOIN iSigma_Customer_Master cm ON cm.cust_id = cba.cust_id
-WHERE cba.EffectiveRateCents >= 17
-  AND ((cba.BillAmountAtCall - h.MedianHistoricalBill) / NULLIF(h.MedianHistoricalBill, 0)) * 100 >= 8
-  AND cm.CreditScore <= 700
-  AND cm.FlowStart IS NOT NULL;
-
-
--- Quick check: how common is CreditScore = 0 across all customers?
-SELECT
-    COUNT(*) AS TotalCustomers,
-    SUM(CASE WHEN CreditScore = 0 THEN 1 ELSE 0 END) AS ZeroScoreCount
-FROM iSigma_Customer_Master;
-
-
--- STEP 5-count: Get total row count for the targeting model
-SELECT COUNT(*) AS TotalFlaggedCustomers
-FROM (
-    -- paste your full STEP 5 query here, without the trailing semicolon
-) AS FlaggedCustomers;
+SELECT COUNT(*) AS TotalFlaggedCustomers FROM FlaggedCustomers;
