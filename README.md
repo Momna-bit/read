@@ -732,4 +732,34 @@ GROUP BY
     END
 ORDER BY MIN(DATEDIFF(DAY, cm.FlowStart, cc.[Date]));
 
+-- STEP 5: Combined usage-alert targeting model
+-- Flags customers likely to call about usage/bill confusion using:
+--   1. Effective rate vs. baseline (validated: ~18.79¢/kWh callers vs ~14.17¢/kWh baseline)
+--   2. Bill increase % vs. personal historical median (validated: ~8.07% median for callers)
+--   3. Tenure (informational only — no clean high-risk window found)
+--   4. Credit score (placeholder threshold — confirm scale/cutoff with Jonathan)
+
+WITH CustomerBillAtCall AS (
+    SELECT
+        bm.cust_id,
+        bm.NetCharge AS BillAmountAtCall,
+        (bm.NetCharge / NULLIF(bm.Usage, 0)) * 100 AS EffectiveRateCents,
+        bm.Bill_Date
+    FROM iSigma_Bill_Master bm
+    WHERE bm.NetCharge > 0
+      AND bm.Usage >= 1
+),
+CustomerHistoricalMedian AS (
+    SELECT
+        cust_id,
+        PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY NetCharge) OVER (PARTITION BY cust_id) AS MedianHistoricalBill
+    FROM iSigma_Bill_Master
+    WHERE NetCharge > 0
+      AND Usage >= 1
+)
+SELECT DISTINCT
+    cba.cust_id,
+    cba.EffectiveRateCents,
+    ROUND(((cba.BillAmountAtCall - h.MedianHistoricalBill) / NULLIF(h.MedianHistoricalBill, 0)) * 100, 2) AS PctIncreaseVsM
+
 
