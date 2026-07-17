@@ -779,3 +779,10 @@ SELECT
     COUNT(*) AS TotalCustomers,
     SUM(CASE WHEN CreditScore = 0 THEN 1 ELSE 0 END) AS ZeroScoreCount
 FROM iSigma_Customer_Master;
+
+
+-- STEP 5-count: Get total row count for the targeting model
+SELECT COUNT(*) AS TotalFlaggedCustomers
+FROM (
+    -- paste your full STEP 5 query here, without the trailing semicolon
+) AS FlaggedCustomers;
