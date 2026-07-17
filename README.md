@@ -815,3 +815,67 @@ FROM iSigma_Bill_Master
 WHERE cust_id = '1502110268'
 ORDER BY Bill_Date;
 
+
+-- ============================================================
+-- Task 3 Follow-up: Usage-Alert Targeting Model
+-- Purpose: Identify customers likely to call about bill/usage
+--          confusion, for proactive (not blanket) alerting.
+-- Author: Momna Ali | Date: 2026-07-17
+-- ============================================================
+
+-- Signals used:
+--   1. Effective rate (NetCharge/Usage x100) >= 20 cents/kWh, <= 50 (outlier ceiling)
+--   2. Bill increase % vs. personal historical median >= 20%
+--   3. Credit score <= 500 (validated: captures ~4.8% of customer base)
+--   4. Tenure: active accounts only (FlowStart IS NOT NULL)
+
+WITH CustomerBillAtCall AS (
+    SELECT
+        bm.cust_id,
+        bm.NetCharge AS BillAmountAtCall,
+        (bm.NetCharge / NULLIF(bm.Usage, 0)) * 100 AS EffectiveRateCents,
+        bm.Bill_Date
+    FROM iSigma_Bill_Master bm
+    WHERE bm.NetCharge > 0
+      AND bm.Usage >= 1
+),
+CustomerHistoricalMedian AS (
+    SELECT
+        cust_id,
+        PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY NetCharge) OVER (PARTITION BY cust_id) AS MedianHistoricalBill
+    FROM iSigma_Bill_Master
+    WHERE NetCharge > 0
+      AND Usage >= 1
+),
+FlaggedCustomers AS (
+    SELECT DISTINCT
+        cba.cust_id,
+        cba.BillAmountAtCall,
+        cba.EffectiveRateCents,
+        h.MedianHistoricalBill,
+        ((cba.BillAmountAtCall - h.MedianHistoricalBill) / NULLIF(h.MedianHistoricalBill, 0)) * 100 AS PctIncreaseVsMedian,
+        DATEDIFF(DAY, cm.FlowStart, cba.Bill_Date) AS TenureDays,
+        cm.CreditScore
+    FROM CustomerBillAtCall cba
+    JOIN CustomerHistoricalMedian h ON h.cust_id = cba.cust_id
+    JOIN iSigma_Customer_Master cm ON cm.cust_id = cba.cust_id
+    WHERE cba.EffectiveRateCents >= 20
+      AND cba.EffectiveRateCents <= 50
+      AND ((cba.BillAmountAtCall - h.MedianHistoricalBill) / NULLIF(h.MedianHistoricalBill, 0)) * 100 >= 20
+      AND cm.CreditScore <= 500
+      AND cm.CreditScore > 0
+      AND cm.FlowStart IS NOT NULL
+)
+SELECT * FROM FlaggedCustomers;
+
+-- Known limitation: median-vs-current comparison can overstate "bill shock"
+-- for customers with historically volatile usage/billing (e.g., seasonal
+-- accounts). Confirmed via spot-check on cust_id 1502110268 (32+ months
+-- of genuine high-variance billing history, not a data artifact).
+-- Future refinement: weight by customer's own billing variance, not just median.
+
+-- Result: ~83,571 customers flagged (~2.1% of ~3.93M customer base)
+-- Credit score threshold calibration data:
+--   <=500: 188,267 customers (~4.8% of base)
+--   <=600: 443,214 customers (~11.3% of base)
+--   <=700: majority of base — not discriminating, do not use
