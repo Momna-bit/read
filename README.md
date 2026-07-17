@@ -658,13 +658,11 @@ WHERE TABLE_NAME = 'iSigma_Customer_Master'
    OR COLUMN_NAME LIKE '%enroll%'
    OR COLUMN_NAME LIKE '%start%date%';
 
--- STEP 4: Credit score (median) and tenure (distribution) for
--- bill-explanation callers, using each customer's most recent bill's
--- cust_id joined to iSigma_Customer_Master.
 
-;WITH CallerCustomers AS (
+WITH CallerCustomers AS (
     SELECT DISTINCT
-        bm.cust_id
+        ivr.AccountNumber AS cust_id,
+        cai.[Date]
     FROM Care_CallAI cai
     JOIN dbo.IVR ivr ON ivr.ContactID = cai.ContactID
     JOIN iSigma_Bill_Master bm ON bm.cust_id = ivr.AccountNumber
@@ -677,10 +675,11 @@ WHERE TABLE_NAME = 'iSigma_Customer_Master'
       )
 )
 SELECT
-    cm.Tenure,
+    DATEDIFF(DAY, cm.CO_START_DATE, cc.[Date]) AS TenureDays,
     COUNT(*) AS Customers,
     AVG(CAST(cm.CreditScore AS FLOAT)) AS AvgCreditScore
 FROM CallerCustomers cc
 JOIN iSigma_Customer_Master cm ON cm.cust_id = cc.cust_id
-GROUP BY cm.Tenure
-ORDER BY Customers DESC;
+GROUP BY DATEDIFF(DAY, cm.CO_START_DATE, cc.[Date])
+ORDER BY TenureDays;
+
