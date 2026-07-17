@@ -460,4 +460,11 @@ WHERE Usage > 0
   AND NetCharge > 0
 ORDER BY Bill_Date DESC;
 
-
+--Option A — Summary stats across the whole customer base:
+SELECT
+    COUNT(*) AS TotalBills,
+    AVG((NetCharge / Usage) * 100) AS AvgEffectiveRate,
+    SUM(CASE WHEN (NetCharge / Usage) * 100 >= 17 THEN 1 ELSE 0 END) AS BillsAboveThreshold,
+    CAST(SUM(CASE WHEN (NetCharge / Usage) * 100 >= 17 THEN 1 ELSE 0 END) AS FLOAT) / COUNT(*) AS PctAboveThreshold
+FROM iSigma_Bill_Master
+WHERE Usage > 0 AND NetCharge > 0;
