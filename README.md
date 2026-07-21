@@ -112,3 +112,40 @@ CROSS APPLY (
 WHERE cai.[call.reason] = 'Remove Autopay'
 ORDER BY cai.[Date] DESC;
 
+-- STEP 17: Rebucket "days on autopay before call" using real event history
+WITH RemovalWithRealTenure AS (
+    SELECT
+        cai.ContactID,
+        cai.[Date] AS CallDate,
+        ba.CustID,
+        add_evt.LastAddDate,
+        DATEDIFF(DAY, add_evt.LastAddDate, cai.[Date]) AS DaysOnAutopayBeforeCall
+    FROM Care_CallAI cai
+    JOIN dbo.IVR ivr ON ivr.ContactID = cai.ContactID
+    JOIN vw_Salesforce_BillingAccount ba ON ba.CustID = ivr.AccountNumber
+    CROSS APPLY (
+        SELECT MAX(sa.Created) AS LastAddDate
+        FROM vw_Salesforce_Autopay sa
+        WHERE sa.AccountID = ba.ID
+          AND sa.Action = 'Add'
+          AND sa.Created <= cai.[Date]
+    ) add_evt
+    WHERE cai.[call.reason] = 'Remove Autopay'
+)
+SELECT
+    CASE
+        WHEN DaysOnAutopayBeforeCall IS NULL THEN 'No prior Add event found'
+        WHEN DaysOnAutopayBeforeCall <= 30 THEN 'New enrollee (0-30 days)'
+        WHEN DaysOnAutopayBeforeCall <= 90 THEN 'Recent enrollee (31-90 days)'
+        ELSE 'Long-time autopay customer (90+ days)'
+    END AS Category,
+    COUNT(*) AS Calls,
+    CAST(COUNT(*) AS FLOAT) / SUM(COUNT(*)) OVER () AS PctOfCalls
+FROM RemovalWithRealTenure
+GROUP BY
+    CASE
+        WHEN DaysOnAutopayBeforeCall IS NULL THEN 'No prior Add event found'
+        WHEN DaysOnAutopayBeforeCall <= 30 THEN 'New enrollee (0-30 days)'
+        WHEN DaysOnAutopayBeforeCall 
+
+
