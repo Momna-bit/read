@@ -469,4 +469,10 @@ WHERE Department = 'Care'
 GROUP BY VerificationStatus
 ORDER BY Cnt DESC;
 
+SELECT DISTINCT VerificationStatus, COUNT(*) AS Cnt
+FROM dbo.IVR
+WHERE Department = 'Care'
+  AND CallDate >= '2022-07-01'
+GROUP BY VerificationStatus
+ORDER BY Cnt DESC;
 
