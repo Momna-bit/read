@@ -461,3 +461,12 @@ FROM INFORMATION_SCHEMA.COLUMNS
 WHERE TABLE_NAME = 'IVR'
   AND (COLUMN_NAME LIKE '%Verif%' OR COLUMN_NAME LIKE '%Queue%');
 
+-- Confirm actual values in VerificationStatus
+SELECT DISTINCT VerificationStatus, COUNT(*) AS Cnt
+FROM dbo.IVR
+WHERE Department = 'Care'
+  AND CallDate >= '2022-07-01'
+GROUP BY VerificationStatus
+ORDER BY Cnt DESC;
+
+
