@@ -75,3 +75,15 @@ FROM vw_Salesforce_Autopay sa
 JOIN vw_Salesforce_BillingAccount ba ON ba.ID = sa.AccountID
 WHERE sa.Action = 'Remove'
 ORDER BY sa.Created DESC;
+
+
+-- STEP 15: Join real autopay-removal events to Remove Autopay calls
+SELECT TOP 20
+    cai.ContactID,
+    cai.[Date] AS CallDate,
+    ba.CustID,
+    sa.Created AS AutopayRemovedDate,
+    DATEDIFF(DAY, sa.Created, cai.[Date]) AS DaysBetweenRemovalAndCall
+FROM Care_CallAI cai
+JOIN dbo.IVR ivr ON ivr.ContactID = cai.ContactID
+JOIN vw_
