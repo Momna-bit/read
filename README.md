@@ -146,6 +146,8 @@ GROUP BY
     CASE
         WHEN DaysOnAutopayBeforeCall IS NULL THEN 'No prior Add event found'
         WHEN DaysOnAutopayBeforeCall <= 30 THEN 'New enrollee (0-30 days)'
-        WHEN DaysOnAutopayBeforeCall 
-
+        WHEN DaysOnAutopayBeforeCall <= 90 THEN 'Recent enrollee (31-90 days)'
+        ELSE 'Long-time autopay customer (90+ days)'
+    END
+ORDER BY Calls DESC;
 
