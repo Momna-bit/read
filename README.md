@@ -361,3 +361,25 @@ WHERE Action = 'Remove'
 GROUP BY CreatedBy
 ORDER BY RemovalsProcessed DESC;
 
+-- STEP 26: Confirm the suspected system account by checking its Add-side volume too
+SELECT Action, COUNT(*) AS EventCount
+FROM vw_Salesforce_Autopay
+WHERE CreatedBy = '0054T000001dhK1QAI'
+GROUP BY Action;
+
+
+-- STEP 27: Test the deposit-waiver loophole (credit score 600-699, waived deposit, later removed autopay)
+SELECT
+    cm.CreditScore,
+    cm.DepositPaid,
+    cm.DepositRequired,
+    cm.Waiver,
+    COUNT(DISTINCT cai.ContactID) AS RemovalCalls
+FROM Care_CallAI cai
+JOIN dbo.IVR ivr ON ivr.ContactID = cai.ContactID
+JOIN iSigma_Customer_Master cm ON cm.cust_id = ivr.AccountNumber
+WHERE cai.[call.reason] = 'Remove Autopay'
+  AND cm.CreditScore BETWEEN 600 AND 699
+  AND cm.DepositPaid = 0
+GROUP BY cm.CreditScore, cm.DepositPaid, cm.DepositRequired, cm.Waiver
+ORDER BY RemovalCalls DESC;
