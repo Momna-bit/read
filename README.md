@@ -151,3 +151,33 @@ GROUP BY
     END
 ORDER BY Calls DESC;
 
+
+-- STEP 18: Investigate the "No prior Add event" group
+WITH RemovalWithRealTenure AS (
+    SELECT
+        cai.ContactID,
+        cai.[Date] AS CallDate,
+        ba.CustID,
+        ba.ID AS SalesforceAccountID,
+        add_evt.LastAddDate
+    FROM Care_CallAI cai
+    JOIN dbo.IVR ivr ON ivr.ContactID = cai.ContactID
+    JOIN vw_Salesforce_BillingAccount ba ON ba.CustID = ivr.AccountNumber
+    CROSS APPLY (
+        SELECT MAX(sa.Created) AS LastAddDate
+        FROM vw_Salesforce_Autopay sa
+        WHERE sa.AccountID = ba.ID
+          AND sa.Action = 'Add'
+          AND sa.Created <= cai.[Date]
+    ) add_evt
+    WHERE cai.[call.reason] = 'Remove Autopay'
+)
+SELECT TOP 20
+    ContactID,
+    CallDate,
+    CustID,
+    SalesforceAccountID
+FROM RemovalWithRealTenure
+WHERE LastAddDate IS NULL
+ORDER BY CallDate DESC;
+
