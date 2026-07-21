@@ -264,3 +264,11 @@ GROUP BY
         ELSE 'Long-time autopay customer (90+ days)'
     END
 ORDER BY Calls DESC;
+
+
+-- STEP 21: Find candidate "due date" columns for the days-until-next-due-date test
+SELECT TABLE_NAME, COLUMN_NAME, DATA_TYPE
+FROM INFORMATION_SCHEMA.COLUMNS
+WHERE (COLUMN_NAME LIKE '%DueDate%' OR COLUMN_NAME LIKE '%Due_Date%')
+  AND TABLE_NAME IN ('iSigma_Bill_Master', 'JESouth_CollectionAR_DailyDue');
+
