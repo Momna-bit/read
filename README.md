@@ -383,3 +383,11 @@ WHERE cai.[call.reason] = 'Remove Autopay'
   AND cm.DepositPaid = 0
 GROUP BY cm.CreditScore, cm.DepositPaid, cm.DepositRequired, cm.Waiver
 ORDER BY RemovalCalls DESC;
+
+
+-- STEP 28: Confirm what Waiver actually contains, and check its relationship to DepositRequired/DepositPaid
+SELECT DISTINCT Waiver, DepositRequired, DepositPaid, COUNT(*) AS CustomerCount
+FROM iSigma_Customer_Master
+WHERE CreditScore BETWEEN 600 AND 699
+GROUP BY Waiver, DepositRequired, DepositPaid
+ORDER BY CustomerCount DESC;
