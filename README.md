@@ -350,3 +350,14 @@ SELECT COLUMN_NAME, DATA_TYPE
 FROM INFORMATION_SCHEMA.COLUMNS
 WHERE TABLE_NAME = 'iSigma_Customer_Master'
   AND (COLUMN_NAME LIKE '%Deposit%' OR COLUMN_NAME LIKE '%Waiver%');
+
+
+-- STEP 25: Check for concentration of Remove actions by specific agents (potential gaming signal)
+SELECT TOP 20
+    CreatedBy,
+    COUNT(*) AS RemovalsProcessed
+FROM vw_Salesforce_Autopay
+WHERE Action = 'Remove'
+GROUP BY CreatedBy
+ORDER BY RemovalsProcessed DESC;
+
