@@ -86,4 +86,7 @@ SELECT TOP 20
     DATEDIFF(DAY, sa.Created, cai.[Date]) AS DaysBetweenRemovalAndCall
 FROM Care_CallAI cai
 JOIN dbo.IVR ivr ON ivr.ContactID = cai.ContactID
-JOIN vw_
+JOIN vw_Salesforce_BillingAccount ba ON ba.CustID = ivr.AccountNumber
+JOIN vw_Salesforce_Autopay sa ON sa.AccountID = ba.ID AND sa.Action = 'Remove'
+WHERE cai.[call.reason] = 'Remove Autopay'
+ORDER BY cai.[Date] DESC;
