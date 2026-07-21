@@ -61,6 +61,7 @@ WHERE TABLE_NAME = 'vw_Salesforce_BillingAccount'
 ORDER BY ORDINAL_POSITION;
 
 -- STEP 13: Confirm what Action, Add, and Remove actually represent
-SELECT TOP 20 AccountID, Created, Action, Add, Remove
+SELECT TOP 20 AccountID, Created, Action, [Add], [Remove]
 FROM vw_Salesforce_Autopay
 ORDER BY Created DESC;
+
