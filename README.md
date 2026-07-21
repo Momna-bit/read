@@ -443,3 +443,14 @@ LEFT JOIN Care_CallAI cai
 WHERE cm.SalesChannel IN ('Inbound Telesales', 'Telemarketing', 'TELESALES')
 GROUP BY cm.SalesChannel;
 
+-- Check for concentration of Remove actions by real (non-system) agents
+SELECT TOP 20
+    CreatedBy,
+    COUNT(*) AS RemovalsProcessed
+FROM vw_Salesforce_Autopay
+WHERE Action = 'Remove'
+  AND CreatedBy <> '0054T000001dhK1QAI'
+GROUP BY CreatedBy
+ORDER BY RemovalsProcessed DESC;
+
+
