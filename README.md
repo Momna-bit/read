@@ -406,3 +406,9 @@ WHERE cm.Waiver = 'Autopay'
   AND cm.CreditScore BETWEEN 600 AND 699
 GROUP BY cm.CreditScore
 ORDER BY cm.CreditScore;
+
+
+-- Confirm exact SalesChannel value for telesales, in a fresh query window
+SELECT DISTINCT SalesChannel
+FROM iSigma_Customer_Master
+WHERE SalesChannel LIKE '%tele%';
