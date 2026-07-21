@@ -493,3 +493,20 @@ WHERE Department = 'Care'
   AND CallDate >= '2022-07-01'
 GROUP BY CAST(CallDate AS DATE)
 ORDER BY CallDay;
+
+
+-- STEP 3 (corrected): Past-due customer count, active customers only
+SELECT
+    CAST(pd.[Date] AS DATE) AS CallDay,
+    COUNT(DISTINCT pd.CustID) AS PastDueCustomerCount_ActiveOnly
+FROM JESouth_CollectionAR_DailyDue pd
+JOIN iSigma_Customer_Master cm
+    ON cm.cust_id = pd.CustID
+    AND cm.Market = 'Texas'
+    AND cm.CustomerType = 'Residential'
+    AND cm.FlowStart <= pd.[Date]
+    AND (cm.FlowEnd IS NULL OR cm.FlowEnd >= pd.[Date])
+WHERE pd.[Date] >= '2022-07-01'
+  AND pd.AR > 0
+GROUP BY CAST(pd.[Date] AS DATE)
+ORDER BY CallDay;
