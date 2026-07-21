@@ -42,5 +42,11 @@ npm run dev
 
 
 
+task 5 follow up
+-- STEP 11: Find the exact Salesforce autopay log and billing account bridge view names
+SELECT TABLE_NAME
+FROM INFORMATION_SCHEMA.VIEWS
+WHERE TABLE_NAME LIKE '%Salesforce%AutoPay%'
+   OR TABLE_NAME LIKE '%Salesforce%Billing%Account%';
 
 
