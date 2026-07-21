@@ -215,3 +215,52 @@ JOIN iSigma_Customer_Master cm ON cm.cust_id = r.CustID
 WHERE r.LastAddDate IS NULL
 ORDER BY r.CallDate DESC;
 
+
+-- STEP 20: Rebucket tenure, falling back to FlowStart when no Add event exists
+-- (autopay set at enrollment isn't logged as a separate Salesforce event)
+WITH RemovalWithRealTenure AS (
+    SELECT
+        cai.ContactID,
+        cai.[Date] AS CallDate,
+        ba.CustID,
+        add_evt.LastAddDate,
+        cm.FlowStart,
+        COALESCE(add_evt.LastAddDate, cm.FlowStart) AS EffectiveAutopayStart
+    FROM Care_CallAI cai
+    JOIN dbo.IVR ivr ON ivr.ContactID = cai.ContactID
+    JOIN vw_Salesforce_BillingAccount ba ON ba.CustID = ivr.AccountNumber
+    JOIN iSigma_Customer_Master cm ON cm.cust_id = ba.CustID
+    CROSS APPLY (
+        SELECT MAX(sa.Created) AS LastAddDate
+        FROM vw_Salesforce_Autopay sa
+        WHERE sa.AccountID = ba.ID
+          AND sa.Action = 'Add'
+          AND sa.Created <= cai.[Date]
+    ) add_evt
+    WHERE cai.[call.reason] = 'Remove Autopay'
+      AND cm.FlowStart IS NOT NULL
+),
+Bucketed AS (
+    SELECT
+        *,
+        DATEDIFF(DAY, EffectiveAutopayStart, CallDate) AS DaysOnAutopayBeforeCall,
+        CASE WHEN LastAddDate IS NULL THEN 1 ELSE 0 END AS UsedFallback
+    FROM RemovalWithRealTenure
+)
+SELECT
+    CASE
+        WHEN DaysOnAutopayBeforeCall <= 30 THEN 'New enrollee (0-30 days)'
+        WHEN DaysOnAutopayBeforeCall <= 90 THEN 'Recent enrollee (31-90 days)'
+        ELSE 'Long-time autopay customer (90+ days)'
+    END AS Category,
+    COUNT(*) AS Calls,
+    CAST(COUNT(*) AS FLOAT) / SUM(COUNT(*)) OVER () AS PctOfCalls,
+    SUM(UsedFallback) AS CallsUsingFlowStartFallback
+FROM Bucketed
+GROUP BY
+    CASE
+        WHEN DaysOnAutopayBeforeCall <= 30 THEN 'New enrollee (0-30 days)'
+        WHEN DaysOnAutopayBeforeCall <= 90 THEN 'Recent enrollee (31-90 days)'
+        ELSE 'Long-time autopay customer (90+ days)'
+    END
+ORDER BY Calls DESC;
