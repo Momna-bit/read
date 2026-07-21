@@ -453,4 +453,11 @@ WHERE Action = 'Remove'
 GROUP BY CreatedBy
 ORDER BY RemovalsProcessed DESC;
 
+task 4 follow up
+
+-- Confirm verification-status column name on dbo.IVR
+SELECT COLUMN_NAME, DATA_TYPE
+FROM INFORMATION_SCHEMA.COLUMNS
+WHERE TABLE_NAME = 'IVR'
+  AND (COLUMN_NAME LIKE '%Verif%' OR COLUMN_NAME LIKE '%Queue%');
 
