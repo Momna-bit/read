@@ -476,3 +476,20 @@ WHERE Department = 'Care'
 GROUP BY VerificationStatus
 ORDER BY Cnt DESC;
 
+-- STEP 4 (corrected): IVR containment rate using Jonathan's real definition
+SELECT
+    CAST(CallDate AS DATE) AS CallDay,
+    COUNT(*) AS Calls,
+    SUM(CASE WHEN VerificationStatus = 'Verified' AND (Queue IS NULL OR QueueTime = 0) THEN 1 ELSE 0 END) AS ContainedCalls,
+    SUM(CASE WHEN QueueTime > 0 THEN 1 ELSE 0 END) AS UncontainedCalls,
+    SUM(CASE WHEN VerificationStatus = 'Verified' OR QueueTime > 0 THEN 1 ELSE 0 END) AS ContainmentDenominator,
+    1.0 - (
+        CAST(SUM(CASE WHEN QueueTime > 0 THEN 1 ELSE 0 END) AS FLOAT)
+        / NULLIF(SUM(CASE WHEN VerificationStatus = 'Verified' OR QueueTime > 0 THEN 1 ELSE 0 END), 0)
+    ) AS IVRContainmentRate_Corrected
+FROM dbo.IVR
+WHERE Department = 'Care'
+  AND CallType IN ('Inbound','Transfer')
+  AND CallDate >= '2022-07-01'
+GROUP BY CAST(CallDate AS DATE)
+ORDER BY CallDay;
