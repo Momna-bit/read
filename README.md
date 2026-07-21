@@ -272,3 +272,32 @@ FROM INFORMATION_SCHEMA.COLUMNS
 WHERE (COLUMN_NAME LIKE '%DueDate%' OR COLUMN_NAME LIKE '%Due_Date%')
   AND TABLE_NAME IN ('iSigma_Bill_Master', 'JESouth_CollectionAR_DailyDue');
 
+
+-- STEP 22: For each Remove Autopay call, find the days until the NEXT due date
+WITH RemovalCalls AS (
+    SELECT
+        cai.ContactID,
+        cai.[Date] AS CallDate,
+        bm.cust_id
+    FROM Care_CallAI cai
+    JOIN dbo.IVR ivr ON ivr.ContactID = cai.ContactID
+    JOIN iSigma_Bill_Master bm ON bm.cust_id = ivr.AccountNumber
+    WHERE cai.[call.reason] = 'Remove Autopay'
+    GROUP BY cai.ContactID, cai.[Date], bm.cust_id
+)
+SELECT TOP 20
+    rc.ContactID,
+    rc.CallDate,
+    rc.cust_id,
+    next_due.NextDueDate,
+    DATEDIFF(DAY, rc.CallDate, next_due.NextDueDate) AS DaysUntilNextDueDate
+FROM RemovalCalls rc
+CROSS APPLY (
+    SELECT MIN(bm2.Due_Date) AS NextDueDate
+    FROM iSigma_Bill_Master bm2
+    WHERE bm2.cust_id = rc.cust_id
+      AND bm2.Due_Date >= rc.CallDate
+) next_due
+ORDER BY rc.CallDate DESC;
+
+
