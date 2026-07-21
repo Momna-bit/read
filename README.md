@@ -345,3 +345,8 @@ GROUP BY
     END
 ORDER BY Calls DESC;
 
+-- STEP 24: Confirm exact deposit-paid column name on iSigma_Customer_Master
+SELECT COLUMN_NAME, DATA_TYPE
+FROM INFORMATION_SCHEMA.COLUMNS
+WHERE TABLE_NAME = 'iSigma_Customer_Master'
+  AND (COLUMN_NAME LIKE '%Deposit%' OR COLUMN_NAME LIKE '%Waiver%');
