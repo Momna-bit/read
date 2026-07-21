@@ -181,3 +181,37 @@ FROM RemovalWithRealTenure
 WHERE LastAddDate IS NULL
 ORDER BY CallDate DESC;
 
+
+-- STEP 19: Check if these accounts have ANY autopay events, and how old they are
+WITH RemovalWithRealTenure AS (
+    SELECT
+        cai.ContactID,
+        cai.[Date] AS CallDate,
+        ba.CustID,
+        ba.ID AS SalesforceAccountID,
+        add_evt.LastAddDate
+    FROM Care_CallAI cai
+    JOIN dbo.IVR ivr ON ivr.ContactID = cai.ContactID
+    JOIN vw_Salesforce_BillingAccount ba ON ba.CustID = ivr.AccountNumber
+    CROSS APPLY (
+        SELECT MAX(sa.Created) AS LastAddDate
+        FROM vw_Salesforce_Autopay sa
+        WHERE sa.AccountID = ba.ID
+          AND sa.Action = 'Add'
+          AND sa.Created <= cai.[Date]
+    ) add_evt
+    WHERE cai.[call.reason] = 'Remove Autopay'
+)
+SELECT TOP 20
+    r.ContactID,
+    r.CallDate,
+    r.CustID,
+    r.SalesforceAccountID,
+    cm.FlowStart,
+    DATEDIFF(DAY, cm.FlowStart, r.CallDate) AS DaysSinceEnrollment,
+    (SELECT COUNT(*) FROM vw_Salesforce_Autopay sa WHERE sa.AccountID = r.SalesforceAccountID) AS TotalAutopayEventsOnRecord
+FROM RemovalWithRealTenure r
+JOIN iSigma_Customer_Master cm ON cm.cust_id = r.CustID
+WHERE r.LastAddDate IS NULL
+ORDER BY r.CallDate DESC;
+
