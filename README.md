@@ -391,3 +391,18 @@ FROM iSigma_Customer_Master
 WHERE CreditScore BETWEEN 600 AND 699
 GROUP BY Waiver, DepositRequired, DepositPaid
 ORDER BY CustomerCount DESC;
+
+
+-- STEP 29: Test the real deposit-waiver loophole using Waiver = 'Autopay'
+SELECT
+    cm.CreditScore,
+    COUNT(DISTINCT cm.cust_id) AS CustomersOnAutopayWaiver,
+    COUNT(DISTINCT cai.ContactID) AS RemovalCalls,
+    CAST(COUNT(DISTINCT cai.ContactID) AS FLOAT) / COUNT(DISTINCT cm.cust_id) AS PctWhoRemoved
+FROM iSigma_Customer_Master cm
+LEFT JOIN dbo.IVR ivr ON ivr.AccountNumber = cm.cust_id
+LEFT JOIN Care_CallAI cai ON cai.ContactID = ivr.ContactID AND cai.[call.reason] = 'Remove Autopay'
+WHERE cm.Waiver = 'Autopay'
+  AND cm.CreditScore BETWEEN 600 AND 699
+GROUP BY cm.CreditScore
+ORDER BY cm.CreditScore;
