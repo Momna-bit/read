@@ -300,4 +300,48 @@ CROSS APPLY (
 ) next_due
 ORDER BY rc.CallDate DESC;
 
+-- STEP 23: Full distribution of days-until-next-due-date across all Remove Autopay calls
+WITH RemovalCalls AS (
+    SELECT
+        cai.ContactID,
+        cai.[Date] AS CallDate,
+        bm.cust_id
+    FROM Care_CallAI cai
+    JOIN dbo.IVR ivr ON ivr.ContactID = cai.ContactID
+    JOIN iSigma_Bill_Master bm ON bm.cust_id = ivr.AccountNumber
+    WHERE cai.[call.reason] = 'Remove Autopay'
+    GROUP BY cai.ContactID, cai.[Date], bm.cust_id
+),
+WithDueDate AS (
+    SELECT
+        rc.ContactID,
+        DATEDIFF(DAY, rc.CallDate, next_due.NextDueDate) AS DaysUntilNextDueDate
+    FROM RemovalCalls rc
+    CROSS APPLY (
+        SELECT MIN(bm2.Due_Date) AS NextDueDate
+        FROM iSigma_Bill_Master bm2
+        WHERE bm2.cust_id = rc.cust_id
+          AND bm2.Due_Date >= rc.CallDate
+    ) next_due
+)
+SELECT
+    CASE
+        WHEN DaysUntilNextDueDate IS NULL THEN 'No upcoming due date found'
+        WHEN DaysUntilNextDueDate <= 3 THEN '0-3 days before due'
+        WHEN DaysUntilNextDueDate <= 7 THEN '4-7 days before due'
+        WHEN DaysUntilNextDueDate <= 14 THEN '8-14 days before due'
+        ELSE '15+ days before due'
+    END AS Bucket,
+    COUNT(*) AS Calls,
+    CAST(COUNT(*) AS FLOAT) / SUM(COUNT(*)) OVER () AS PctOfCalls
+FROM WithDueDate
+GROUP BY
+    CASE
+        WHEN DaysUntilNextDueDate IS NULL THEN 'No upcoming due date found'
+        WHEN DaysUntilNextDueDate <= 3 THEN '0-3 days before due'
+        WHEN DaysUntilNextDueDate <= 7 THEN '4-7 days before due'
+        WHEN DaysUntilNextDueDate <= 14 THEN '8-14 days before due'
+        ELSE '15+ days before due'
+    END
+ORDER BY Calls DESC;
 
