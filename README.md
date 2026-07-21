@@ -430,3 +430,16 @@ WHERE cm.SalesChannel IN ('Inbound Telesales', 'Telemarketing', 'TELESALES')
 GROUP BY cm.SalesChannel
 ORDER BY PctRemovedWithin60Days DESC;
 
+-- Sanity check: any Remove Autopay calls at all from these channels, regardless of timing
+SELECT
+    cm.SalesChannel,
+    COUNT(DISTINCT cm.cust_id) AS TotalEnrolled,
+    COUNT(DISTINCT cai.ContactID) AS AnyRemovalCallEver
+FROM iSigma_Customer_Master cm
+LEFT JOIN dbo.IVR ivr ON ivr.AccountNumber = cm.cust_id
+LEFT JOIN Care_CallAI cai
+    ON cai.ContactID = ivr.ContactID
+    AND cai.[call.reason] = 'Remove Autopay'
+WHERE cm.SalesChannel IN ('Inbound Telesales', 'Telemarketing', 'TELESALES')
+GROUP BY cm.SalesChannel;
+
