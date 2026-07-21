@@ -65,3 +65,13 @@ SELECT TOP 20 AccountID, Created, Action, [Add], [Remove]
 FROM vw_Salesforce_Autopay
 ORDER BY Created DESC;
 
+-- STEP 14: Join autopay events to billing account bridge to get real cust_id
+SELECT TOP 20
+    sa.AccountID,
+    sa.Created AS EventDate,
+    sa.Action,
+    ba.CustID
+FROM vw_Salesforce_Autopay sa
+JOIN vw_Salesforce_BillingAccount ba ON ba.ID = sa.AccountID
+WHERE sa.Action = 'Remove'
+ORDER BY sa.Created DESC;
