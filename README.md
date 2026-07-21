@@ -412,3 +412,21 @@ ORDER BY cm.CreditScore;
 SELECT DISTINCT SalesChannel
 FROM iSigma_Customer_Master
 WHERE SalesChannel LIKE '%tele%';
+
+-- Test the telesales clawback theory: removal within 60 days of enrollment, by channel
+SELECT
+    cm.SalesChannel,
+    COUNT(DISTINCT cm.cust_id) AS TotalEnrolled,
+    COUNT(DISTINCT cai.ContactID) AS RemovedWithin60Days,
+    CAST(COUNT(DISTINCT cai.ContactID) AS FLOAT) / COUNT(DISTINCT cm.cust_id) AS PctRemovedWithin60Days
+FROM iSigma_Customer_Master cm
+LEFT JOIN dbo.IVR ivr ON ivr.AccountNumber = cm.cust_id
+LEFT JOIN Care_CallAI cai
+    ON cai.ContactID = ivr.ContactID
+    AND cai.[call.reason] = 'Remove Autopay'
+    AND DATEDIFF(DAY, cm.FlowStart, cai.[Date]) BETWEEN 0 AND 60
+WHERE cm.SalesChannel IN ('Inbound Telesales', 'Telemarketing', 'TELESALES')
+  AND cm.FlowStart IS NOT NULL
+GROUP BY cm.SalesChannel
+ORDER BY PctRemovedWithin60Days DESC;
+
