@@ -216,3 +216,17 @@ GROUP BY Language,
     VerificationStatus
 ORDER BY StatedLanguage, QueueBasedLanguage, VerificationStatus;
 
+
+-- STEP 1: Texas residential filter applied to base population
+SELECT
+    cm.cust_id,
+    cm.Market,
+    cm.CustomerType,
+    cm.FlowStart,
+    cm.FlowEnd
+FROM iSigma_Customer_Master cm
+WHERE cm.Market = 'Texas'
+    AND cm.CustomerType = 'Residential'
+    AND cm.FlowStart IS NOT NULL
+    AND (cm.FlowEnd IS NULL OR cm.FlowEnd >= GETDATE());
+
