@@ -507,6 +507,6 @@ JOIN iSigma_Customer_Master cm
     AND cm.FlowStart <= pd.[Date]
     AND (cm.FlowEnd IS NULL OR cm.FlowEnd >= pd.[Date])
 WHERE pd.[Date] >= '2022-07-01'
-  AND pd.AR > 0
+    AND pd.AR > 0
 GROUP BY CAST(pd.[Date] AS DATE)
 ORDER BY CallDay;
