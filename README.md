@@ -272,5 +272,8 @@ FROM Care_CallAI cai
 WHERE [call.reason] IN ('Bill Explanation', 'Bill Dispute');
 
 
--- Check whether the Task 5 Salesforce bridge view can resolve ContactID
-SELECT TOP 10 * FROM vw_Salesforce_BillingAccount WHERE ContactID IS NOT NULL;
+-- Check if any table links ContactID (GUID) to cust_id
+SELECT TABLE_NAME, COLUMN_NAME
+FROM INFORMATION_SCHEMA.COLUMNS
+WHERE COLUMN_NAME IN ('ContactID', 'cust_id')
+ORDER BY TABLE_NAME;
