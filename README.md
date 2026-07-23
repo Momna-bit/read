@@ -440,3 +440,10 @@ SELECT TABLE_NAME, COLUMN_NAME, DATA_TYPE
 FROM INFORMATION_SCHEMA.COLUMNS
 WHERE COLUMN_NAME LIKE '%Usage%'
 ORDER BY TABLE_NAME, ORDINAL_POSITION;
+
+
+-- Check what iSigma_Customer_Master.Usage actually represents
+SELECT TOP 10 cust_id, Usage, UsageCredit
+FROM iSigma_Customer_Master
+WHERE Usage IS NOT NULL
+ORDER BY cust_id;
