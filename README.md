@@ -160,3 +160,13 @@ ORDER BY CallDay;
 
 SELECT DISTINCT Queue FROM dbo.IVR WHERE Department = 'Care' AND CallDate >= '2022-07-01' ORDER BY Queue;
 
+-- Debug: confirm Alberta volume exists and check date range
+SELECT 
+    Queue,
+    COUNT(*) AS CallCount,
+    MIN(CallDate) AS FirstCall,
+    MAX(CallDate) AS LastCall
+FROM dbo.IVR
+WHERE Department = 'Care'
+    AND Queue LIKE '%Alberta%'
+GROUP BY Queue;
