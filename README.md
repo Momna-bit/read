@@ -140,3 +140,20 @@ WHERE Department = 'Care'
     AND CallDate >= '2022-07-01'
 GROUP BY CAST(CallDate AS DATE)
 ORDER BY CallDay;
+
+
+-- STEP 6 (corrected): Combined transfer count (regular + escalation)
+SELECT
+    CAST(CallDate AS DATE) AS CallDay,
+    SUM(CASE WHEN TransferToQueue IS NOT NULL THEN 1 ELSE 0 END) AS RegularTransfers,
+    SUM(CASE WHEN FinalQueue IS NOT NULL AND FinalQueue <> Queue THEN 1 ELSE 0 END) AS EscalationTransfers,
+    SUM(CASE 
+        WHEN TransferToQueue IS NOT NULL 
+             OR (FinalQueue IS NOT NULL AND FinalQueue <> Queue)
+        THEN 1 ELSE 0 END) AS TotalTransfers_Combined
+FROM dbo.IVR
+WHERE Department = 'Care'
+    AND CallDate >= '2022-07-01'
+GROUP BY CAST(CallDate AS DATE)
+ORDER BY CallDay;
+
