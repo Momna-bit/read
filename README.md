@@ -1,4 +1,4 @@
-	
+o	
 Pehle terminal dekh -> git bash
 
 (step by step check karna. Example node -v likh ke hit enter)
@@ -425,4 +425,13 @@ FROM (
     LEFT JOIN Collections_DebtSaleBuyBack bb ON ds.cust_id = bb.cust_id
 ) t
 GROUP BY PaymentBehaviorSignal;
+
+
+-- STEP 5 (flagged finding, not a resolved signal):
+-- Collections_DebtSaleBuyBack reasons (Fraud, Deceased, Bankruptcy, Escalation, 
+-- Sold in error, Invalid Enrollment, Waiving ETF) do NOT indicate the customer 
+-- eventually paid -- they reflect operational/legal reversals of the debt sale.
+-- This table cannot answer Jonathan's "eventual-payer vs write-off" question as-is.
+-- Open item for final deliverable: is there a different source (e.g. payment 
+-- applied post-write-off) that captures true eventual payment?
 
