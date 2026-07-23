@@ -248,11 +248,8 @@ WHERE TABLE_NAME = 'Care_CallAI'
 
 
 -- STEP 2b: Confirm exact value strings for Bill Explanation / Bill Dispute
-SELECT DISTINCT <ConfirmedColumnName>, COUNT(*) AS Cnt
+SELECT DISTINCT [call.reason], COUNT(*) AS Cnt
 FROM Care_CallAI
-WHERE <ConfirmedColumnName> LIKE '%Bill%'
-GROUP BY <ConfirmedColumnName>
+WHERE [call.reason] LIKE '%Bill%'
+GROUP BY [call.reason]
 ORDER BY Cnt DESC;
-
-
-
