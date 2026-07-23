@@ -388,3 +388,8 @@ WHERE vcc.AI_CallReason IN ('Bill Explanation', 'Bill Dispute')
     AND vcc.CustID IS NOT NULL;
 
 
+-- Check columns on both collections tables
+SELECT TABLE_NAME, COLUMN_NAME, DATA_TYPE
+FROM INFORMATION_SCHEMA.COLUMNS
+WHERE TABLE_NAME IN ('Collections_DebtSale', 'Collections_DebtSaleBuyBack')
+ORDER BY TABLE_NAME, ORDINAL_POSITION;
