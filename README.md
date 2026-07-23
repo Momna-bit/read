@@ -260,3 +260,13 @@ SELECT COLUMN_NAME, DATA_TYPE
 FROM INFORMATION_SCHEMA.COLUMNS
 WHERE TABLE_NAME = 'Care_CallAI'
 ORDER BY ORDINAL_POSITION;
+
+
+-- STEP 2 (corrected v2): Bill Explanation + Bill Dispute combined
+SELECT
+    cai.ContactID,
+    cai.[Date],
+    cai.transcript_analysis_id,
+    [call.reason] AS CallReason
+FROM Care_CallAI cai
+WHERE [call.reason] IN ('Bill Explanation', 'Bill Dispute');
