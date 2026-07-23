@@ -480,3 +480,26 @@ JOIN iSigma_Customer_Master cm
 WHERE vcc.AI_CallReason IN ('Bill Explanation', 'Bill Dispute')
     AND vcc.Market = 'Texas'
     AND vcc.CustID IS NOT NULL;
+
+
+-- STEP 7: Frequent-contact flag (calls in prior 30/60/90 days from each call)
+SELECT
+    vcc.CustID,
+    vcc.ContactID,
+    vcc.CallDate,
+    (SELECT COUNT(*) 
+     FROM vw_Care_CustomerContact vcc2 
+     WHERE vcc2.CustID = vcc.CustID 
+        AND vcc2.CallDate < vcc.CallDate 
+        AND vcc2.CallDate >= DATEADD(DAY, -30, vcc.CallDate)
+    ) AS CallsPrior30Days,
+    (SELECT COUNT(*) 
+     FROM vw_Care_CustomerContact vcc2 
+     WHERE vcc2.CustID = vcc.CustID 
+        AND vcc2.CallDate < vcc.CallDate 
+        AND vcc2.CallDate >= DATEADD(DAY, -60, vcc.CallDate)
+    ) AS CallsPrior60Days,
+    (SELECT COUNT(*) 
+     FROM vw_Care_CustomerContact vcc2 
+     WHERE vcc2.CustID = vcc.CustID 
+        AND vcc2.CallDate 
