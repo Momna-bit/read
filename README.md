@@ -157,3 +157,6 @@ WHERE Department = 'Care'
 GROUP BY CAST(CallDate AS DATE)
 ORDER BY CallDay;
 
+
+SELECT DISTINCT Queue FROM dbo.IVR WHERE Department = 'Care' AND CallDate >= '2022-07-01' ORDER BY Queue;
+
