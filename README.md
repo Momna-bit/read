@@ -351,3 +351,10 @@ FROM vw_Care_CustomerContact vcc
 WHERE vcc.AI_CallReason IN ('Bill Explanation', 'Bill Dispute')
     AND vcc.Market = 'Texas'
     AND vcc.CustID IS NOT NULL;
+
+-- Check for a more granular tenure-in-days/months field
+SELECT COLUMN_NAME, DATA_TYPE
+FROM INFORMATION_SCHEMA.COLUMNS
+WHERE TABLE_NAME = 'vw_Care_CustomerContact'
+    AND (COLUMN_NAME LIKE '%Tenure%' OR COLUMN_NAME LIKE '%FlowStart%' OR COLUMN_NAME LIKE '%Enroll%');
+
