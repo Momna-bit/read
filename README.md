@@ -466,13 +466,13 @@ GROUP BY DepositPaid
 ORDER BY Cnt DESC;
 
 
--- STEP 6: Deposit/waiver flag joined to Task 3 population
+-- STEP 6 (corrected): Deposit/waiver flag joined to Task 3 population
 SELECT
     vcc.CustID,
     cm.DepositPaid,
     CASE 
-        WHEN cm.DepositPaid = 1 THEN 'Deposit Paid'  -- adjust based on 6a results
-        ELSE 'No Deposit / Waived'
+        WHEN cm.DepositPaid > 0 THEN 'Deposit Paid'
+        WHEN cm.DepositPaid = 0 OR cm.DepositPaid IS NULL THEN 'No Deposit / Waived'
     END AS DepositFlag
 FROM vw_Care_CustomerContact vcc
 JOIN iSigma_Customer_Master cm
