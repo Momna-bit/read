@@ -230,3 +230,13 @@ WHERE cm.Market = 'Texas'
     AND cm.FlowStart IS NOT NULL
     AND (cm.FlowEnd IS NULL OR cm.FlowEnd >= GETDATE());
 
+
+-- STEP 1 (count): Total active Texas-residential population
+SELECT COUNT(*) AS TexasResidentialActiveCount
+FROM iSigma_Customer_Master cm
+WHERE cm.Market = 'Texas'
+    AND cm.CustomerType = 'Residential'
+    AND cm.FlowStart IS NOT NULL
+    AND (cm.FlowEnd IS NULL OR cm.FlowEnd >= GETDATE());
+
+
