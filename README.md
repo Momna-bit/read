@@ -482,30 +482,35 @@ WHERE vcc.AI_CallReason IN ('Bill Explanation', 'Bill Dispute')
     AND vcc.CustID IS NOT NULL;
 
 
--- STEP 7: Frequent-contact flag (calls in prior 30/60/90 days from each call)
+-- STEP 7 (optimized): Build a lightweight call-date table first
+SELECT CustID, CallDate
+INTO #CustomerCallDates
+FROM vw_Care_CustomerContact
+WHERE CustID IN (
+    SELECT DISTINCT vcc.CustID
+    FROM vw_Care_CustomerContact vcc
+    WHERE vcc.AI_CallReason IN ('Bill Explanation', 'Bill Dispute')
+        AND vcc.Market = 'Texas'
+        AND vcc.CustID IS NOT NULL
+)
+AND CustID IS NOT NULL;
+
+-- Now self-join against the much smaller temp table instead of the 18.8M row view
 SELECT
     vcc.CustID,
     vcc.ContactID,
     vcc.CallDate,
-    (SELECT COUNT(*) 
-     FROM vw_Care_CustomerContact vcc2 
-     WHERE vcc2.CustID = vcc.CustID 
-        AND vcc2.CallDate < vcc.CallDate 
-        AND vcc2.CallDate >= DATEADD(DAY, -30, vcc.CallDate)
-    ) AS CallsPrior30Days,
-    (SELECT COUNT(*) 
-     FROM vw_Care_CustomerContact vcc2 
-     WHERE vcc2.CustID = vcc.CustID 
-        AND vcc2.CallDate < vcc.CallDate 
-        AND vcc2.CallDate >= DATEADD(DAY, -60, vcc.CallDate)
-    ) AS CallsPrior60Days,
-    (SELECT COUNT(*) 
-     FROM vw_Care_CustomerContact vcc2 
-     WHERE vcc2.CustID = vcc.CustID 
-        AND vcc2.CallDate < vcc.CallDate 
-        AND vcc2.CallDate >= DATEADD(DAY, -90, vcc.CallDate)
-    ) AS CallsPrior90Days
+    (SELECT COUNT(*) FROM #CustomerCallDates c2 
+     WHERE c2.CustID = vcc.CustID AND c2.CallDate < vcc.CallDate 
+        AND c2.CallDate >= DATEADD(DAY, -30, vcc.CallDate)) AS CallsPrior30Days,
+    (SELECT COUNT(*) FROM #CustomerCallDates c2 
+     WHERE c2.CustID = vcc.CustID AND c2.CallDate < vcc.CallDate 
+        AND c2.CallDate >= DATEADD(DAY, -60, vcc.CallDate)) AS CallsPrior60Days,
+    (SELECT COUNT(*) FROM #CustomerCallDates c2 
+     WHERE c2.CustID = vcc.CustID AND c2.CallDate < vcc.CallDate 
+        AND c2.CallDate >= DATEADD(DAY, -90, vcc.CallDate)) AS CallsPrior90Days
 FROM vw_Care_CustomerContact vcc
 WHERE vcc.AI_CallReason IN ('Bill Explanation', 'Bill Dispute')
     AND vcc.Market = 'Texas'
     AND vcc.CustID IS NOT NULL;
+
