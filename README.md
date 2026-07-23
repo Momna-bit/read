@@ -296,3 +296,10 @@ FROM Care_CallAI cai
 JOIN vw_Salesforce_Contact sfc
     ON cai.ContactID = sfc.ContactID
 WHERE [call.reason] IN ('Bill Explanation', 'Bill Dispute');
+
+
+-- Diagnostic: do ContactID formats actually match between the two tables?
+SELECT TOP 5 ContactID FROM Care_CallAI WHERE ContactID IS NOT NULL;
+
+SELECT TOP 5 ContactID FROM vw_Salesforce_Contact WHERE ContactID IS NOT NULL;
+
