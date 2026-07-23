@@ -457,3 +457,26 @@ ORDER BY cust_id;
 -- once a bill has already generated -- the opposite of Jonathan's "pre-bill-generation" ask.
 -- Open question for Jonathan: is there a separate utility meter-read/interval-usage 
 -- feed (outside iSigma) that would need to be sourced for this trigger to work as specified?
+
+
+-- STEP 6a: Confirm DepositPaid field and its distinct values
+SELECT DISTINCT DepositPaid, COUNT(*) AS Cnt
+FROM iSigma_Customer_Master
+GROUP BY DepositPaid
+ORDER BY Cnt DESC;
+
+
+-- STEP 6: Deposit/waiver flag joined to Task 3 population
+SELECT
+    vcc.CustID,
+    cm.DepositPaid,
+    CASE 
+        WHEN cm.DepositPaid = 1 THEN 'Deposit Paid'  -- adjust based on 6a results
+        ELSE 'No Deposit / Waived'
+    END AS DepositFlag
+FROM vw_Care_CustomerContact vcc
+JOIN iSigma_Customer_Master cm
+    ON cm.cust_id = vcc.CustID
+WHERE vcc.AI_CallReason IN ('Bill Explanation', 'Bill Dispute')
+    AND vcc.Market = 'Texas'
+    AND vcc.CustID IS NOT NULL;
