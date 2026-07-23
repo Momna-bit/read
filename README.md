@@ -447,3 +447,13 @@ SELECT TOP 10 cust_id, Usage, UsageCredit
 FROM iSigma_Customer_Master
 WHERE Usage IS NOT NULL
 ORDER BY cust_id;
+
+
+-- STEP 3 (flagged finding, not resolved):
+-- No usage source in this schema updates independently of bill generation.
+-- iSigma_Customer_Master.Usage is unpopulated/junk data (all 0.00, invalid cust_id values).
+-- All real usage values live on bill/invoice-level tables (iSigma_Bill_Master,
+-- iSigma_Bill_Contract_Details, iSigma_Customer_Fin_Invoices) which only populate
+-- once a bill has already generated -- the opposite of Jonathan's "pre-bill-generation" ask.
+-- Open question for Jonathan: is there a separate utility meter-read/interval-usage 
+-- feed (outside iSigma) that would need to be sourced for this trigger to work as specified?
