@@ -255,11 +255,8 @@ GROUP BY [call.reason]
 ORDER BY Cnt DESC;
 
 
--- STEP 2 (corrected): Bill Explanation + Bill Dispute combined
-SELECT
-    cai.cust_id,
-    cai.CallDate,
-    [call.reason] AS CallReason
-FROM Care_CallAI cai
-WHERE [call.reason] IN ('Bill Explanation', 'Bill Dispute');
-
+-- STEP 2c: Confirm all column names on Care_CallAI
+SELECT COLUMN_NAME, DATA_TYPE
+FROM INFORMATION_SCHEMA.COLUMNS
+WHERE TABLE_NAME = 'Care_CallAI'
+ORDER BY ORDINAL_POSITION;
