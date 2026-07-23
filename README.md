@@ -393,3 +393,18 @@ SELECT TABLE_NAME, COLUMN_NAME, DATA_TYPE
 FROM INFORMATION_SCHEMA.COLUMNS
 WHERE TABLE_NAME IN ('Collections_DebtSale', 'Collections_DebtSaleBuyBack')
 ORDER BY TABLE_NAME, ORDINAL_POSITION;
+
+
+-- STEP 5: Historical payment-behavior signal (eventual-payer vs. write-off)
+SELECT
+    ds.cust_id,
+    ds.WriteOffAmount,
+    ds.WriteOffDate,
+    ds.SaleDate,
+    CASE 
+        WHEN bb.cust_id IS NOT NULL THEN 'Eventual Payer'
+        ELSE 'Write-Off'
+    END AS PaymentBehaviorSignal
+FROM Collections_DebtSale ds
+LEFT JOIN Collections_DebtSaleBuyBack bb
+    ON ds.cust_id = bb.cust_id;
