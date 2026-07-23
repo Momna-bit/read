@@ -311,4 +311,23 @@ WHERE TABLE_NAME = 'vw_Care_CustomerContact'
 ORDER BY ORDINAL_POSITION;
 
 
+-- Sanity check: CustID coverage on vw_Care_CustomerContact
+SELECT 
+    COUNT(*) AS TotalRows,
+    COUNT(CustID) AS RowsWithCustID,
+    COUNT(DISTINCT CustID) AS DistinctCustIDs
+FROM vw_Care_CustomerContact;
+
+
+-- STEP 2 (rebuilt): Bill Explanation + Bill Dispute, using vw_Care_CustomerContact directly
+SELECT
+    vcc.CustID,
+    vcc.ContactID,
+    vcc.CallDate,
+    vcc.Market,
+    vcc.CustomerTenure,
+    vcc.CustomerTenureOrder,
+    vcc.AI_CallReason
+FROM vw_Care_CustomerContact vcc
+WHERE vcc.AI_CallReason IN ('Bill Explanation', 'Bill Dispute');
 
