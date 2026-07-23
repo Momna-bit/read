@@ -502,4 +502,10 @@ SELECT
     (SELECT COUNT(*) 
      FROM vw_Care_CustomerContact vcc2 
      WHERE vcc2.CustID = vcc.CustID 
-        AND vcc2.CallDate 
+        AND vcc2.CallDate < vcc.CallDate 
+        AND vcc2.CallDate >= DATEADD(DAY, -90, vcc.CallDate)
+    ) AS CallsPrior90Days
+FROM vw_Care_CustomerContact vcc
+WHERE vcc.AI_CallReason IN ('Bill Explanation', 'Bill Dispute')
+    AND vcc.Market = 'Texas'
+    AND vcc.CustID IS NOT NULL;
