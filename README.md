@@ -358,3 +358,33 @@ FROM INFORMATION_SCHEMA.COLUMNS
 WHERE TABLE_NAME = 'vw_Care_CustomerContact'
     AND (COLUMN_NAME LIKE '%Tenure%' OR COLUMN_NAME LIKE '%FlowStart%' OR COLUMN_NAME LIKE '%Enroll%');
 
+
+-- STEP 4: Tenure bucketed as Jonathan wants — <=14 months vs. >14 months
+SELECT
+    vcc.CustID,
+    vcc.ContactID,
+    vcc.CallDate,
+    vcc.FlowStart,
+    DATEDIFF(MONTH, vcc.FlowStart, vcc.CallDate) AS TenureMonths,
+    CASE 
+        WHEN DATEDIFF(MONTH, vcc.FlowStart, vcc.CallDate) <= 14 THEN '<=14 Months'
+        ELSE '>14 Months'
+    END AS TenureBucket,
+    vcc.AI_CallReason
+FROM vw_Care_CustomerContact vcc
+WHERE vcc.AI_CallReason IN ('Bill Explanation', 'Bill Dispute')
+    AND vcc.Market = 'Texas'
+    AND vcc.CustID IS NOT NULL
+    AND vcc.FlowStart IS NOT NULL;
+
+
+-- Check FlowStart coverage within the 27,117 population
+SELECT 
+    COUNT(*) AS TotalInPopulation,
+    COUNT(FlowStart) AS RowsWithFlowStart
+FROM vw_Care_CustomerContact vcc
+WHERE vcc.AI_CallReason IN ('Bill Explanation', 'Bill Dispute')
+    AND vcc.Market = 'Texas'
+    AND vcc.CustID IS NOT NULL;
+
+
