@@ -303,3 +303,12 @@ SELECT TOP 5 ContactID FROM Care_CallAI WHERE ContactID IS NOT NULL;
 
 SELECT TOP 5 ContactID FROM vw_Salesforce_Contact WHERE ContactID IS NOT NULL;
 
+
+-- Check if vw_Care_CustomerContact bridges the GUID ContactID to cust_id
+SELECT COLUMN_NAME, DATA_TYPE
+FROM INFORMATION_SCHEMA.COLUMNS
+WHERE TABLE_NAME = 'vw_Care_CustomerContact'
+ORDER BY ORDINAL_POSITION;
+
+
+
