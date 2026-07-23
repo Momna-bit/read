@@ -240,3 +240,19 @@ WHERE cm.Market = 'Texas'
     AND (cm.FlowEnd IS NULL OR cm.FlowEnd >= GETDATE());
 
 
+-- STEP 2a: Confirm call-reason/classification column name
+SELECT COLUMN_NAME, DATA_TYPE
+FROM INFORMATION_SCHEMA.COLUMNS
+WHERE TABLE_NAME = 'Care_CallAI'
+    AND (COLUMN_NAME LIKE '%Reason%' OR COLUMN_NAME LIKE '%Classif%' OR COLUMN_NAME LIKE '%Category%');
+
+
+-- STEP 2b: Confirm exact value strings for Bill Explanation / Bill Dispute
+SELECT DISTINCT <ConfirmedColumnName>, COUNT(*) AS Cnt
+FROM Care_CallAI
+WHERE <ConfirmedColumnName> LIKE '%Bill%'
+GROUP BY <ConfirmedColumnName>
+ORDER BY Cnt DESC;
+
+
+
