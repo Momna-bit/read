@@ -270,3 +270,7 @@ SELECT
     [call.reason] AS CallReason
 FROM Care_CallAI cai
 WHERE [call.reason] IN ('Bill Explanation', 'Bill Dispute');
+
+
+-- Check whether the Task 5 Salesforce bridge view can resolve ContactID
+SELECT TOP 10 * FROM vw_Salesforce_BillingAccount WHERE ContactID IS NOT NULL;
