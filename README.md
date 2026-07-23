@@ -331,3 +331,18 @@ SELECT
 FROM vw_Care_CustomerContact vcc
 WHERE vcc.AI_CallReason IN ('Bill Explanation', 'Bill Dispute');
 
+
+-- STEP 2 (final v2): Bill Explanation + Bill Dispute, Texas-residential only
+SELECT
+    vcc.CustID,
+    vcc.ContactID,
+    vcc.CallDate,
+    vcc.Market,
+    vcc.CustomerTenure,
+    vcc.CustomerTenureOrder,
+    vcc.AI_CallReason
+FROM vw_Care_CustomerContact vcc
+WHERE vcc.AI_CallReason IN ('Bill Explanation', 'Bill Dispute')
+    AND vcc.Market = 'Texas'
+    AND vcc.CustID IS NOT NULL;
+
