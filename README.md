@@ -253,3 +253,13 @@ FROM Care_CallAI
 WHERE [call.reason] LIKE '%Bill%'
 GROUP BY [call.reason]
 ORDER BY Cnt DESC;
+
+
+-- STEP 2 (corrected): Bill Explanation + Bill Dispute combined
+SELECT
+    cai.cust_id,
+    cai.CallDate,
+    [call.reason] AS CallReason
+FROM Care_CallAI cai
+WHERE [call.reason] IN ('Bill Explanation', 'Bill Dispute');
+
