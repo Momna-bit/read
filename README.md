@@ -122,3 +122,21 @@ WHERE pd.[Date] >= '2022-07-01'
     AND pd.AR > 0
 GROUP BY CAST(pd.[Date] AS DATE)
 ORDER BY CallDay;
+
+-- STEP 5 (corrected): Texas vs. Alberta IVR split
+SELECT
+    CAST(CallDate AS DATE) AS CallDay,
+    SUM(CASE 
+        WHEN Queue IS NULL 
+             OR (Queue NOT LIKE '%Alberta%' 
+                 AND Queue NOT LIKE '%California%' 
+                 AND Queue NOT LIKE '%NorthCanada%')
+        THEN 1 ELSE 0 END) AS TexasCalls,
+    SUM(CASE 
+        WHEN Queue LIKE '%Alberta%' 
+        THEN 1 ELSE 0 END) AS AlbertaCalls
+FROM dbo.IVR
+WHERE Department = 'Care'
+    AND CallDate >= '2022-07-01'
+GROUP BY CAST(CallDate AS DATE)
+ORDER BY CallDay;
