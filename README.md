@@ -285,3 +285,14 @@ WHERE TABLE_NAME IN ('vw_Salesforce_Contact', 'vw_SFPortalCallIn')
 ORDER BY TABLE_NAME, ORDINAL_POSITION;
 
 
+-- STEP 2 (final): Bill Explanation + Bill Dispute, bridged to cust_id
+SELECT
+    sfc.CustID,
+    cai.ContactID,
+    cai.[Date],
+    cai.transcript_analysis_id,
+    [call.reason] AS CallReason
+FROM Care_CallAI cai
+JOIN vw_Salesforce_Contact sfc
+    ON cai.ContactID = sfc.ContactID
+WHERE [call.reason] IN ('Bill Explanation', 'Bill Dispute');
