@@ -435,3 +435,8 @@ GROUP BY PaymentBehaviorSignal;
 -- Open item for final deliverable: is there a different source (e.g. payment 
 -- applied post-write-off) that captures true eventual payment?
 
+-- STEP 3a: Confirm usage-related columns across billing/usage tables
+SELECT TABLE_NAME, COLUMN_NAME, DATA_TYPE
+FROM INFORMATION_SCHEMA.COLUMNS
+WHERE COLUMN_NAME LIKE '%Usage%'
+ORDER BY TABLE_NAME, ORDINAL_POSITION;
