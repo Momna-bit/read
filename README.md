@@ -101,3 +101,24 @@ WHERE pd.[Date] >= '2022-07-01'
     AND pd.AR > 0
 GROUP BY CAST(pd.[Date] AS DATE)
 ORDER BY CallDay;
+
+-- STEP 3 (comparison): Original vs. corrected past-due counts
+SELECT
+    CAST(pd.[Date] AS DATE) AS CallDay,
+    COUNT(DISTINCT pd.CustID) AS PastDueCustomerCount_Original,
+    COUNT(DISTINCT CASE 
+        WHEN cm.cust_id IS NOT NULL 
+             AND cm.Market = 'Texas'
+             AND cm.CustomerType = 'Residential'
+             AND cm.FlowStart <= pd.[Date]
+             AND (cm.FlowEnd IS NULL OR cm.FlowEnd >= pd.[Date])
+        THEN pd.CustID 
+    END) AS PastDueCustomerCount_ActiveOnly
+FROM JESouth_CollectionAR_DailyDue pd
+LEFT JOIN iSigma_Customer_Master cm
+    ON cm.cust_id = pd.CustID
+WHERE pd.[Date] >= '2022-07-01'
+    AND pd.[Date] < '2022-08-01'
+    AND pd.AR > 0
+GROUP BY CAST(pd.[Date] AS DATE)
+ORDER BY CallDay;
