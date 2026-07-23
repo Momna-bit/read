@@ -170,3 +170,26 @@ FROM dbo.IVR
 WHERE Department = 'Care'
     AND Queue LIKE '%Alberta%'
 GROUP BY Queue;
+
+-- STEP 5 (corrected v2): Texas vs. Alberta IVR split with data-availability flag
+SELECT
+    CAST(CallDate AS DATE) AS CallDay,
+    SUM(CASE 
+        WHEN Queue IS NULL 
+             OR (Queue NOT LIKE '%Alberta%' 
+                 AND Queue NOT LIKE '%California%' 
+                 AND Queue NOT LIKE '%NorthCanada%')
+        THEN 1 ELSE 0 END) AS TexasCalls,
+    SUM(CASE 
+        WHEN Queue LIKE '%Alberta%' 
+        THEN 1 ELSE 0 END) AS AlbertaCalls,
+    CASE 
+        WHEN CAST(CallDate AS DATE) < '2024-03-20' THEN 'Alberta data not yet available'
+        ELSE 'Alberta data available'
+    END AS AlbertaDataAvailability
+FROM dbo.IVR
+WHERE Department = 'Care'
+    AND CallDate >= '2022-07-01'
+GROUP BY CAST(CallDate AS DATE)
+ORDER BY CallDay;
+
