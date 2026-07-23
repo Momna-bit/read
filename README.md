@@ -193,3 +193,26 @@ WHERE Department = 'Care'
 GROUP BY CAST(CallDate AS DATE)
 ORDER BY CallDay;
 
+
+-- STEP 6: Language field reliability check
+SELECT
+    Language AS StatedLanguage,
+    CASE 
+        WHEN Queue LIKE '%SPA%' OR Queue LIKE '%Spanish%' THEN 'Spanish (by queue)'
+        WHEN Queue LIKE '%ENG%' THEN 'English (by queue)'
+        ELSE 'Unclear (by queue)'
+    END AS QueueBasedLanguage,
+    VerificationStatus,
+    COUNT(*) AS CallCount
+FROM dbo.IVR
+WHERE Department = 'Care'
+    AND CallDate >= '2022-07-01'
+GROUP BY Language, 
+    CASE 
+        WHEN Queue LIKE '%SPA%' OR Queue LIKE '%Spanish%' THEN 'Spanish (by queue)'
+        WHEN Queue LIKE '%ENG%' THEN 'English (by queue)'
+        ELSE 'Unclear (by queue)'
+    END,
+    VerificationStatus
+ORDER BY StatedLanguage, QueueBasedLanguage, VerificationStatus;
+
