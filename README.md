@@ -482,8 +482,10 @@ WHERE vcc.AI_CallReason IN ('Bill Explanation', 'Bill Dispute')
     AND vcc.CustID IS NOT NULL;
 
 
--- STEP 7 (optimized): Build a lightweight call-date table first
-SELECT CustID, CallDate
+-- STEP 7 (optimized, fixed): Build a lightweight call-date table first
+SELECT 
+    CAST(CustID AS VARCHAR(50)) AS CustID, 
+    CallDate
 INTO #CustomerCallDates
 FROM vw_Care_CustomerContact
 WHERE CustID IN (
@@ -495,22 +497,21 @@ WHERE CustID IN (
 )
 AND CustID IS NOT NULL;
 
--- Now self-join against the much smaller temp table instead of the 18.8M row view
+
 SELECT
     vcc.CustID,
     vcc.ContactID,
     vcc.CallDate,
     (SELECT COUNT(*) FROM #CustomerCallDates c2 
-     WHERE c2.CustID = vcc.CustID AND c2.CallDate < vcc.CallDate 
+     WHERE c2.CustID = CAST(vcc.CustID AS VARCHAR(50)) AND c2.CallDate < vcc.CallDate 
         AND c2.CallDate >= DATEADD(DAY, -30, vcc.CallDate)) AS CallsPrior30Days,
     (SELECT COUNT(*) FROM #CustomerCallDates c2 
-     WHERE c2.CustID = vcc.CustID AND c2.CallDate < vcc.CallDate 
+     WHERE c2.CustID = CAST(vcc.CustID AS VARCHAR(50)) AND c2.CallDate < vcc.CallDate 
         AND c2.CallDate >= DATEADD(DAY, -60, vcc.CallDate)) AS CallsPrior60Days,
     (SELECT COUNT(*) FROM #CustomerCallDates c2 
-     WHERE c2.CustID = vcc.CustID AND c2.CallDate < vcc.CallDate 
+     WHERE c2.CustID = CAST(vcc.CustID AS VARCHAR(50)) AND c2.CallDate < vcc.CallDate 
         AND c2.CallDate >= DATEADD(DAY, -90, vcc.CallDate)) AS CallsPrior90Days
 FROM vw_Care_CustomerContact vcc
 WHERE vcc.AI_CallReason IN ('Bill Explanation', 'Bill Dispute')
     AND vcc.Market = 'Texas'
     AND vcc.CustID IS NOT NULL;
-
