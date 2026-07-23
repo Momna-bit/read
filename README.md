@@ -408,3 +408,21 @@ SELECT
 FROM Collections_DebtSale ds
 LEFT JOIN Collections_DebtSaleBuyBack bb
     ON ds.cust_id = bb.cust_id;
+
+-- Check what reasons drive buybacks — confirm they're payment-related
+SELECT DISTINCT Reason, COUNT(*) AS Cnt
+FROM Collections_DebtSaleBuyBack
+GROUP BY Reason
+ORDER BY Cnt DESC;
+
+
+-- Quick tally: how many total customers land in each bucket?
+SELECT PaymentBehaviorSignal, COUNT(*) AS Cnt
+FROM (
+    SELECT ds.cust_id,
+        CASE WHEN bb.cust_id IS NOT NULL THEN 'Eventual Payer' ELSE 'Write-Off' END AS PaymentBehaviorSignal
+    FROM Collections_DebtSale ds
+    LEFT JOIN Collections_DebtSaleBuyBack bb ON ds.cust_id = bb.cust_id
+) t
+GROUP BY PaymentBehaviorSignal;
+
