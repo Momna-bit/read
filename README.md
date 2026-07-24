@@ -690,3 +690,66 @@ WHERE bm.cust_id IN (
 )
 AND bm.Bill_Date >= DATEADD(MONTH, -12, GETDATE())
 GROUP BY bm.cust_id;
+
+-- TASK 3 (FINAL): Consolidated usage-alert targeting model — Texas residential, Bill Explanation/Dispute
+SELECT
+    vcc.CustID,
+    vcc.ContactID,
+    vcc.CallDate,
+    cm.CreditScore,
+    cm.DepositPaid,
+    DATEDIFF(MONTH, vcc.FlowStart, vcc.CallDate) AS TenureMonths,
+    CASE 
+        WHEN DATEDIFF(MONTH, vcc.FlowStart, vcc.CallDate) <= 14 THEN '<=14 Months' 
+        ELSE '>14 Months' 
+    END AS TenureBucket,
+    CASE 
+        WHEN cm.DepositPaid > 0 THEN 'Deposit Paid' 
+        ELSE 'No Deposit' 
+    END AS DepositFlag,
+    CASE 
+        WHEN EXISTS (
+            SELECT 1 FROM #CustomerCallDates c2 
+            WHERE c2.CustID = CAST(vcc.CustID AS VARCHAR(50)) 
+               AND c2.CallDate < vcc.CallDate 
+               AND c2.CallDate >= DATEADD(DAY, -30, vcc.CallDate)
+            GROUP BY c2.CustID
+            HAVING COUNT(*) >= 2
+        )
+        THEN 'Frequent Contact' 
+        ELSE 'Normal Contact'
+    END AS FrequentContactFlag,
+    usage12.AvgUsage12Mo,
+    usage12.BillsIncluded,
+    CASE WHEN usage12.BillsIncluded < 10 THEN 'Partial Baseline' ELSE 'Full 12-Month Baseline' END AS BaselineQuality,
+    CASE 
+        WHEN cm.CreditScore <= 500 
+             AND cm.CreditScore > 0 
+             AND cm.DepositPaid = 0
+             AND NOT EXISTS (
+                 SELECT 1 FROM #CustomerCallDates c2 
+                 WHERE c2.CustID = CAST(vcc.CustID AS VARCHAR(50)) 
+                    AND c2.CallDate < vcc.CallDate 
+                    AND c2.CallDate >= DATEADD(DAY, -30, vcc.CallDate)
+                 GROUP BY c2.CustID
+                 HAVING COUNT(*) >= 2
+             )
+        THEN 'Flag'
+        ELSE 'No Flag'
+    END AS UsageAlertFlag
+FROM vw_Care_CustomerContact vcc
+JOIN iSigma_Customer_Master cm ON cm.cust_id = vcc.CustID
+LEFT JOIN (
+    SELECT
+        bm.cust_id,
+        AVG(bm.Usage) AS AvgUsage12Mo,
+        COUNT(*) AS BillsIncluded
+    FROM iSigma_Bill_Master bm
+    WHERE bm.Bill_Date >= DATEADD(MONTH, -12, GETDATE())
+    GROUP BY bm.cust_id
+) usage12 ON usage12.cust_id = vcc.CustID
+WHERE vcc.AI_CallReason IN ('Bill Explanation', 'Bill Dispute')
+    AND vcc.Market = 'Texas'
+    AND vcc.CustID IS NOT NULL
+    AND vcc.FlowStart IS NOT NULL;
+
