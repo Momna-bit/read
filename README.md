@@ -664,3 +664,30 @@ FROM (
 ) t
 GROUP BY UsageAlertFlag;
 
+
+-- Confirm date-related columns on iSigma_Bill_Master
+SELECT COLUMN_NAME, DATA_TYPE
+FROM INFORMATION_SCHEMA.COLUMNS
+WHERE TABLE_NAME = 'iSigma_Bill_Master'
+    AND (COLUMN_NAME LIKE '%Date%' OR COLUMN_NAME LIKE '%Bill%')
+ORDER BY ORDINAL_POSITION;
+
+
+-- STEP 10: 12-month historical usage baseline per customer
+SELECT
+    bm.cust_id,
+    AVG(bm.Usage) AS AvgUsage12Mo,
+    COUNT(*) AS BillsIncluded,
+    MIN(bm.BillDate) AS EarliestBillInWindow,
+    MAX(bm.BillDate) AS LatestBillInWindow
+FROM iSigma_Bill_Master bm
+WHERE bm.cust_id IN (
+    SELECT DISTINCT vcc.CustID
+    FROM vw_Care_CustomerContact vcc
+    WHERE vcc.AI_CallReason IN ('Bill Explanation', 'Bill Dispute')
+        AND vcc.Market = 'Texas'
+        AND vcc.CustID IS NOT NULL
+)
+AND bm.BillDate >= DATEADD(MONTH, -12, GETDATE())
+GROUP BY bm.cust_id;
+
