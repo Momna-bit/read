@@ -575,34 +575,31 @@ WHERE vcc.AI_CallReason IN ('Bill Explanation', 'Bill Dispute')
     AND vcc.CustID IS NOT NULL
     AND vcc.FlowStart IS NOT NULL;
 
--- STEP 8b: How do the flags overlap among actual callers?
+-- STEP 8b (fixed): How do the flags overlap among actual callers?
 SELECT
-    CASE WHEN cm.CreditScore <= 500 AND cm.CreditScore > 0 THEN 'Score<=500' ELSE 'Score>500 or junk' END AS CreditBand,
-    CASE WHEN cm.DepositPaid > 0 THEN 'Deposit Paid' ELSE 'No Deposit' END AS DepositFlag,
-    CASE WHEN DATEDIFF(MONTH, vcc.FlowStart, vcc.CallDate) <= 14 THEN '<=14 Months' ELSE '>14 Months' END AS TenureBucket,
-    CASE 
-        WHEN (SELECT COUNT(*) FROM #CustomerCallDates c2 
-              WHERE c2.CustID = CAST(vcc.CustID AS VARCHAR(50)) AND c2.CallDate < vcc.CallDate 
-                 AND c2.CallDate >= DATEADD(DAY, -30, vcc.CallDate)) >= 2 
-        THEN 'Frequent Contact' ELSE 'Normal Contact'
-    END AS FrequentContactFlag,
+    CreditBand,
+    DepositFlag,
+    TenureBucket,
+    FrequentContactFlag,
     COUNT(*) AS CustomerCount
-FROM vw_Care_CustomerContact vcc
-JOIN iSigma_Customer_Master cm ON cm.cust_id = vcc.CustID
-WHERE vcc.AI_CallReason IN ('Bill Explanation', 'Bill Dispute')
-    AND vcc.Market = 'Texas'
-    AND vcc.CustID IS NOT NULL
-    AND vcc.FlowStart IS NOT NULL
-GROUP BY 
-    CASE WHEN cm.CreditScore <= 500 AND cm.CreditScore > 0 THEN 'Score<=500' ELSE 'Score>500 or junk' END,
-    CASE WHEN cm.DepositPaid > 0 THEN 'Deposit Paid' ELSE 'No Deposit' END,
-    CASE WHEN DATEDIFF(MONTH, vcc.FlowStart, vcc.CallDate) <= 14 THEN '<=14 Months' ELSE '>14 Months' END,
-    CASE 
-        WHEN (SELECT COUNT(*) FROM #CustomerCallDates c2 
-              WHERE c2.CustID = CAST(vcc.CustID AS VARCHAR(50)) AND c2.CallDate < vcc.CallDate 
-                 AND c2.CallDate >= DATEADD(DAY, -30, vcc.CallDate)) >= 2 
-        THEN 'Frequent Contact' ELSE 'Normal Contact'
-    END
+FROM (
+    SELECT
+        vcc.CustID,
+        CASE WHEN cm.CreditScore <= 500 AND cm.CreditScore > 0 THEN 'Score<=500' ELSE 'Score>500 or junk' END AS CreditBand,
+        CASE WHEN cm.DepositPaid > 0 THEN 'Deposit Paid' ELSE 'No Deposit' END AS DepositFlag,
+        CASE WHEN DATEDIFF(MONTH, vcc.FlowStart, vcc.CallDate) <= 14 THEN '<=14 Months' ELSE '>14 Months' END AS TenureBucket,
+        CASE 
+            WHEN (SELECT COUNT(*) FROM #CustomerCallDates c2 
+                  WHERE c2.CustID = CAST(vcc.CustID AS VARCHAR(50)) AND c2.CallDate < vcc.CallDate 
+                     AND c2.CallDate >= DATEADD(DAY, -30, vcc.CallDate)) >= 2 
+            THEN 'Frequent Contact' ELSE 'Normal Contact'
+        END AS FrequentContactFlag
+    FROM vw_Care_CustomerContact vcc
+    JOIN iSigma_Customer_Master cm ON cm.cust_id = vcc.CustID
+    WHERE vcc.AI_CallReason IN ('Bill Explanation', 'Bill Dispute')
+        AND vcc.Market = 'Texas'
+        AND vcc.CustID IS NOT NULL
+        AND vcc.FlowStart IS NOT NULL
+) t
+GROUP BY CreditBand, DepositFlag, TenureBucket, FrequentContactFlag
 ORDER BY CustomerCount DESC;
-
-
