@@ -753,3 +753,12 @@ WHERE vcc.AI_CallReason IN ('Bill Explanation', 'Bill Dispute')
     AND vcc.CustID IS NOT NULL
     AND vcc.FlowStart IS NOT NULL;
 
+SELECT COUNT(*) AS FinalPopulationCount
+FROM vw_Care_CustomerContact vcc
+JOIN iSigma_Customer_Master cm ON cm.cust_id = vcc.CustID
+WHERE vcc.AI_CallReason IN ('Bill Explanation', 'Bill Dispute')
+    AND vcc.Market = 'Texas'
+    AND vcc.CustID IS NOT NULL
+    AND vcc.FlowStart IS NOT NULL;
+
+
