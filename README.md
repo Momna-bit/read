@@ -553,3 +553,25 @@ WHERE vcc.AI_CallReason IN ('Bill Explanation', 'Bill Dispute')
     AND vcc.Market = 'Texas'
     AND vcc.CustID IS NOT NULL;
 
+
+-- STEP 8a: Combined profile — merge all signals for the flagged population
+SELECT
+    vcc.CustID,
+    cm.CreditScore,
+    cm.DepositPaid,
+    DATEDIFF(MONTH, vcc.FlowStart, vcc.CallDate) AS TenureMonths,
+    CASE WHEN DATEDIFF(MONTH, vcc.FlowStart, vcc.CallDate) <= 14 THEN '<=14 Months' ELSE '>14 Months' END AS TenureBucket,
+    CASE WHEN cm.DepositPaid > 0 THEN 'Deposit Paid' ELSE 'No Deposit' END AS DepositFlag,
+    CASE 
+        WHEN (SELECT COUNT(*) FROM #CustomerCallDates c2 
+              WHERE c2.CustID = CAST(vcc.CustID AS VARCHAR(50)) AND c2.CallDate < vcc.CallDate 
+                 AND c2.CallDate >= DATEADD(DAY, -30, vcc.CallDate)) >= 2 
+        THEN 'Frequent Contact' ELSE 'Normal Contact'
+    END AS FrequentContactFlag
+FROM vw_Care_CustomerContact vcc
+JOIN iSigma_Customer_Master cm ON cm.cust_id = vcc.CustID
+WHERE vcc.AI_CallReason IN ('Bill Explanation', 'Bill Dispute')
+    AND vcc.Market = 'Texas'
+    AND vcc.CustID IS NOT NULL
+    AND vcc.FlowStart IS NOT NULL;
+
