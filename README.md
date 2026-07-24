@@ -678,8 +678,8 @@ SELECT
     bm.cust_id,
     AVG(bm.Usage) AS AvgUsage12Mo,
     COUNT(*) AS BillsIncluded,
-    MIN(bm.BillDate) AS EarliestBillInWindow,
-    MAX(bm.BillDate) AS LatestBillInWindow
+    MIN(bm.Bill_Date) AS EarliestBillInWindow,
+    MAX(bm.Bill_Date) AS LatestBillInWindow
 FROM iSigma_Bill_Master bm
 WHERE bm.cust_id IN (
     SELECT DISTINCT vcc.CustID
@@ -688,6 +688,5 @@ WHERE bm.cust_id IN (
         AND vcc.Market = 'Texas'
         AND vcc.CustID IS NOT NULL
 )
-AND bm.BillDate >= DATEADD(MONTH, -12, GETDATE())
+AND bm.Bill_Date >= DATEADD(MONTH, -12, GETDATE())
 GROUP BY bm.cust_id;
-
