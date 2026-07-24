@@ -605,7 +605,30 @@ GROUP BY CreditBand, DepositFlag, TenureBucket, FrequentContactFlag
 ORDER BY CustomerCount DESC;
 
 
-Flag = CreditScore <= 500 
-   AND CreditScore > 0  (exclude NULL/junk placeholders)
-   AND DepositPaid = 0  (no deposit already covering risk)
-   AND NOT Frequent Contact  (exclude customers already reaching out)
+-- STEP 8 (final): Context-aware flag to reduce false positives
+SELECT
+    vcc.CustID,
+    cm.CreditScore,
+    cm.DepositPaid,
+    DATEDIFF(MONTH, vcc.FlowStart, vcc.CallDate) AS TenureMonths,
+    CASE 
+        WHEN cm.CreditScore <= 500 
+             AND cm.CreditScore > 0 
+             AND cm.DepositPaid = 0
+             AND NOT EXISTS (
+                 SELECT 1 FROM #CustomerCallDates c2 
+                 WHERE c2.CustID = CAST(vcc.CustID AS VARCHAR(50)) 
+                    AND c2.CallDate < vcc.CallDate 
+                    AND c2.CallDate >= DATEADD(DAY, -30, vcc.CallDate)
+                 GROUP BY c2.CustID
+                 HAVING COUNT(*) >= 2
+             )
+        THEN 'Flag'
+        ELSE 'No Flag'
+    END AS UsageAlertFlag
+FROM vw_Care_CustomerContact vcc
+JOIN iSigma_Customer_Master cm ON cm.cust_id = vcc.CustID
+WHERE vcc.AI_CallReason IN ('Bill Explanation', 'Bill Dispute')
+    AND vcc.Market = 'Texas'
+    AND vcc.CustID IS NOT NULL
+    AND vcc.FlowStart IS NOT NULL;
