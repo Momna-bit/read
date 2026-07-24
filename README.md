@@ -603,3 +603,9 @@ FROM (
 ) t
 GROUP BY CreditBand, DepositFlag, TenureBucket, FrequentContactFlag
 ORDER BY CustomerCount DESC;
+
+
+Flag = CreditScore <= 500 
+   AND CreditScore > 0  (exclude NULL/junk placeholders)
+   AND DepositPaid = 0  (no deposit already covering risk)
+   AND NOT Frequent Contact  (exclude customers already reaching out)
