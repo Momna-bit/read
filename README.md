@@ -515,3 +515,19 @@ FROM vw_Care_CustomerContact vcc
 WHERE vcc.AI_CallReason IN ('Bill Explanation', 'Bill Dispute')
     AND vcc.Market = 'Texas'
     AND vcc.CustID IS NOT NULL;
+
+
+-- Check the distribution of CallsPrior30Days to pick a sensible threshold
+SELECT CallsPrior30Days, COUNT(*) AS CustomerCount
+FROM (
+    SELECT
+        vcc.CustID,
+        (SELECT COUNT(*) FROM #CustomerCallDates c2 
+         WHERE c2.CustID = CAST(vcc.CustID AS VARCHAR(50)) AND c2.CallDate < vcc.CallDate 
+            AND c2.CallDate >= DATEADD(DAY, -30, vcc.CallDate)) AS CallsPrior30Days
+    FROM vw_Care_CustomerContact vcc
+    WHERE vcc.AI_CallReason IN ('Bill Explanation', 'Bill Dispute')
+        AND vcc.Market = 'Texas'
+        AND vcc.CustID IS NOT NULL
+) t
+GROUP BY CallsPrior30Days
