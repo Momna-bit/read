@@ -632,3 +632,35 @@ WHERE vcc.AI_CallReason IN ('Bill Explanation', 'Bill Dispute')
     AND vcc.Market = 'Texas'
     AND vcc.CustID IS NOT NULL
     AND vcc.FlowStart IS NOT NULL;
+
+-- Final count: how many customers get flagged by the Step 8 rule?
+SELECT 
+    UsageAlertFlag,
+    COUNT(*) AS CustomerCount
+FROM (
+    SELECT
+        vcc.CustID,
+        CASE 
+            WHEN cm.CreditScore <= 500 
+                 AND cm.CreditScore > 0 
+                 AND cm.DepositPaid = 0
+                 AND NOT EXISTS (
+                     SELECT 1 FROM #CustomerCallDates c2 
+                     WHERE c2.CustID = CAST(vcc.CustID AS VARCHAR(50)) 
+                        AND c2.CallDate < vcc.CallDate 
+                        AND c2.CallDate >= DATEADD(DAY, -30, vcc.CallDate)
+                     GROUP BY c2.CustID
+                     HAVING COUNT(*) >= 2
+                 )
+            THEN 'Flag'
+            ELSE 'No Flag'
+        END AS UsageAlertFlag
+    FROM vw_Care_CustomerContact vcc
+    JOIN iSigma_Customer_Master cm ON cm.cust_id = vcc.CustID
+    WHERE vcc.AI_CallReason IN ('Bill Explanation', 'Bill Dispute')
+        AND vcc.Market = 'Texas'
+        AND vcc.CustID IS NOT NULL
+        AND vcc.FlowStart IS NOT NULL
+) t
+GROUP BY UsageAlertFlag;
+
