@@ -531,3 +531,25 @@ FROM (
         AND vcc.CustID IS NOT NULL
 ) t
 GROUP BY CallsPrior30Days
+
+
+-- STEP 7 (final): Frequent-contact flag
+SELECT
+    vcc.CustID,
+    vcc.ContactID,
+    vcc.CallDate,
+    (SELECT COUNT(*) FROM #CustomerCallDates c2 
+     WHERE c2.CustID = CAST(vcc.CustID AS VARCHAR(50)) AND c2.CallDate < vcc.CallDate 
+        AND c2.CallDate >= DATEADD(DAY, -30, vcc.CallDate)) AS CallsPrior30Days,
+    CASE 
+        WHEN (SELECT COUNT(*) FROM #CustomerCallDates c2 
+              WHERE c2.CustID = CAST(vcc.CustID AS VARCHAR(50)) AND c2.CallDate < vcc.CallDate 
+                 AND c2.CallDate >= DATEADD(DAY, -30, vcc.CallDate)) >= 2 
+        THEN 'Frequent Contact'
+        ELSE 'Normal Contact'
+    END AS FrequentContactFlag
+FROM vw_Care_CustomerContact vcc
+WHERE vcc.AI_CallReason IN ('Bill Explanation', 'Bill Dispute')
+    AND vcc.Market = 'Texas'
+    AND vcc.CustID IS NOT NULL;
+
