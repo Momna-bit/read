@@ -796,3 +796,7 @@ WHERE name = 'vw_Care_CustomerContact';
 
 -- Check 2: Confirm another known table still has data (isolate the issue)
 SELECT COUNT(*) AS IVRRowCount FROM dbo.IVR;
+
+-- Check if the underlying Care_CallAI table (which this view likely wraps) still has data
+SELECT COUNT(*) AS CareCallAICount FROM Care_CallAI;
+
