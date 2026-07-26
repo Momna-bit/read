@@ -762,4 +762,10 @@ WHERE vcc.AI_CallReason IN ('Bill Explanation', 'Bill Dispute')
     AND vcc.FlowStart IS NOT NULL;
 
 
+-- STEP 1: Confirm autopay-related classification fields on Care_CallAI / vw_Care_CustomerContact
+SELECT COLUMN_NAME, DATA_TYPE
+FROM INFORMATION_SCHEMA.COLUMNS
+WHERE TABLE_NAME IN ('Care_CallAI', 'vw_Care_CustomerContact')
+    AND (COLUMN_NAME LIKE '%otc%' OR COLUMN_NAME LIKE '%pay%' OR COLUMN_NAME LIKE '%reason%')
+ORDER BY TABLE_NAME, ORDINAL_POSITION;
 
