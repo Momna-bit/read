@@ -843,3 +843,12 @@ SELECT COLUMN_NAME, DATA_TYPE
 FROM INFORMATION_SCHEMA.COLUMNS
 WHERE TABLE_NAME = 'vw_Salesforce_User'
 ORDER BY ORDINAL_POSITION;
+
+
+-- Check if ID is actually populated on vw_Salesforce_User
+SELECT 
+    COUNT(*) AS TotalUsers,
+    COUNT(ID) AS UsersWithID,
+    COUNT(DISTINCT ID) AS DistinctIDs
+FROM vw_Salesforce_User;
+
