@@ -775,3 +775,10 @@ FROM vw_Care_CustomerContact
 WHERE OTC IS NOT NULL
 GROUP BY OTC, OTCResolved
 ORDER BY Cnt DESC;
+
+-- Check if OTC field has any data at all on this view
+SELECT 
+    COUNT(*) AS TotalRows,
+    COUNT(OTC) AS RowsWithOTC,
+    COUNT(DISTINCT OTC) AS DistinctOTCValues
+FROM vw_Care_CustomerContact;
