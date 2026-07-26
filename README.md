@@ -828,3 +828,10 @@ GROUP BY u.Username, u.EmployeeNumber,
         ELSE 'Likely Portal (Customer)'
     END
 ORDER BY RemovalCount DESC;
+
+-- Isolate the issue: check each part separately
+SELECT COUNT(*) AS TotalAutopayRows FROM vw_Salesforce_Autopay;
+SELECT COUNT(*) AS RemovalRows FROM vw_Salesforce_Autopay WHERE Remove = 1;
+SELECT TOP 5 CreatedBy FROM vw_Salesforce_Autopay WHERE CreatedBy IS NOT NULL;
+SELECT TOP 5 ID FROM vw_Salesforce_User WHERE ID IS NOT NULL;
+
