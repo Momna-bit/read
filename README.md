@@ -806,3 +806,25 @@ FROM INFORMATION_SCHEMA.COLUMNS
 WHERE TABLE_NAME LIKE '%Autopay%' OR TABLE_NAME LIKE '%AutoPay%'
    OR (TABLE_NAME LIKE '%Salesforce%' AND TABLE_NAME LIKE '%User%')
 ORDER BY TABLE_NAME, ORDINAL_POSITION;
+
+
+-- STEP 4 (corrected): Portal-vs-agent channel split for autopay removals
+SELECT
+    u.Username,
+    u.EmployeeNumber,
+    CASE 
+        WHEN u.EmployeeNumber IS NOT NULL THEN 'Agent'
+        WHEN u.Username LIKE '%service%' OR u.Username LIKE '%system%' THEN 'IT Service Account'
+        ELSE 'Likely Portal (Customer)'
+    END AS RemovalChannel,
+    COUNT(*) AS RemovalCount
+FROM vw_Salesforce_Autopay a
+JOIN vw_Salesforce_User u ON u.ID = a.CreatedBy
+WHERE a.Remove = 1
+GROUP BY u.Username, u.EmployeeNumber,
+    CASE 
+        WHEN u.EmployeeNumber IS NOT NULL THEN 'Agent'
+        WHEN u.Username LIKE '%service%' OR u.Username LIKE '%system%' THEN 'IT Service Account'
+        ELSE 'Likely Portal (Customer)'
+    END
+ORDER BY RemovalCount DESC;
