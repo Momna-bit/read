@@ -787,3 +787,12 @@ SELECT DB_NAME() AS CurrentDatabase;
 
 SELECT COUNT(*) AS TotalRows
 FROM vw_Care_CustomerContact;
+
+
+-- Check 1: Does the view still exist, and when was it last modified?
+SELECT name, create_date, modify_date
+FROM sys.views
+WHERE name = 'vw_Care_CustomerContact';
+
+-- Check 2: Confirm another known table still has data (isolate the issue)
+SELECT COUNT(*) AS IVRRowCount FROM dbo.IVR;
