@@ -769,3 +769,9 @@ WHERE TABLE_NAME IN ('Care_CallAI', 'vw_Care_CustomerContact')
     AND (COLUMN_NAME LIKE '%otc%' OR COLUMN_NAME LIKE '%pay%' OR COLUMN_NAME LIKE '%reason%')
 ORDER BY TABLE_NAME, ORDINAL_POSITION;
 
+-- Check distinct values in OTC and related fields — do these capture autopay-removal context?
+SELECT DISTINCT OTC, OTCResolved, COUNT(*) AS Cnt
+FROM vw_Care_CustomerContact
+WHERE OTC IS NOT NULL
+GROUP BY OTC, OTCResolved
+ORDER BY Cnt DESC;
