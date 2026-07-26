@@ -800,3 +800,9 @@ SELECT COUNT(*) AS IVRRowCount FROM dbo.IVR;
 -- Check if the underlying Care_CallAI table (which this view likely wraps) still has data
 SELECT COUNT(*) AS CareCallAICount FROM Care_CallAI;
 
+-- Find the actual Salesforce autopay event log and user tables
+SELECT TABLE_NAME, COLUMN_NAME, DATA_TYPE
+FROM INFORMATION_SCHEMA.COLUMNS
+WHERE TABLE_NAME LIKE '%Autopay%' OR TABLE_NAME LIKE '%AutoPay%'
+   OR (TABLE_NAME LIKE '%Salesforce%' AND TABLE_NAME LIKE '%User%')
+ORDER BY TABLE_NAME, ORDINAL_POSITION;
