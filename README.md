@@ -835,3 +835,11 @@ SELECT COUNT(*) AS RemovalRows FROM vw_Salesforce_Autopay WHERE Remove = 1;
 SELECT TOP 5 CreatedBy FROM vw_Salesforce_Autopay WHERE CreatedBy IS NOT NULL;
 SELECT TOP 5 ID FROM vw_Salesforce_User WHERE ID IS NOT NULL;
 
+-- Check which vw_Salesforce_User columns actually contain Salesforce-ID-formatted values
+SELECT TOP 5 ID, EmployeeNumber, AmazonConnectU FROM vw_Salesforce_User;
+
+
+SELECT COLUMN_NAME, DATA_TYPE
+FROM INFORMATION_SCHEMA.COLUMNS
+WHERE TABLE_NAME = 'vw_Salesforce_User'
+ORDER BY ORDINAL_POSITION;
