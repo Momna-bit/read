@@ -782,3 +782,8 @@ SELECT
     COUNT(OTC) AS RowsWithOTC,
     COUNT(DISTINCT OTC) AS DistinctOTCValues
 FROM vw_Care_CustomerContact;
+
+SELECT DB_NAME() AS CurrentDatabase;
+
+SELECT COUNT(*) AS TotalRows
+FROM vw_Care_CustomerContact;
