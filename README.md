@@ -201,268 +201,12 @@ ORDER BY cal.CallDay;
 
 
 
+-- ============================================================================
+-- TASK 4 + LONG-TERM FORECAST: Full Baseline Rebuild + Blended Day-of-Week Rates
+-- South Mass Market & Canada | Texas Residential Care
+-- Prepared by: Momna Ali
+-- ============================================================================
 
--- STEP 1 (Long-Term Forecast): Recompute day-of-week rates using full corrected history
-WITH BaselineCount AS (
-    SELECT COUNT(*) AS BaselineCount
-    FROM iSigma_Customer_Master
-    WHERE Market = 'Texas' AND CustomerType = 'Residential'
-        AND FlowStart < '2022-07-01'
-        AND (FlowEnd IS NULL OR FlowEnd >= '2022-07-01')
-),
-Calendar AS (
-    SELECT CAST([Date] AS DATE) AS CallDay, DayName AS Weekday,
-        CASE WHEN USHoliday IS NOT NULL THEN 1 ELSE 0 END AS IsHoliday
-    FROM vw_calendarWH WHERE [Date] >= '2022-07-01'
-),
-IVRDaily AS (
-    SELECT CAST(CallDate AS DATE) AS CallDay, COUNT(*) AS TexasCalls
-    FROM dbo.IVR
-    WHERE Department = 'Care'
-        AND (Queue IS NULL OR (Queue NOT LIKE '%Alberta%' AND Queue NOT LIKE '%California%' AND Queue NOT LIKE '%NorthCanada%'))
-        AND (Queue IS NULL OR Queue NOT IN (
-            'JustEnergy_Compliance_Eng','Tara_Compliance_Eng','Terrapass Enrollments ENG SPA',
-            'HudsonCommReAffEng-NewYork','Default Route','RoutingErrorFallbackQueue',
-            'SharedPool','SharedPool_Spanish','Pre Flow Retention SPA','z_ResiCSENG-COVID19'
-        ))
-        AND CallDate >= '2022-07-01'
-    GROUP BY CAST(CallDate AS DATE)
-),
-ActiveDelta AS (
-    SELECT CAST(FlowStart AS DATE) AS EventDate, 1 AS Delta
-    FROM iSigma_Customer_Master
-    WHERE Market = 'Texas' AND CustomerType = 'Residential' AND FlowStart >= '2022-07-01'
-    UNION ALL
-    SELECT CAST(DATEADD(DAY, 1, FlowEnd) AS DATE) AS EventDate, -1 AS Delta
-    FROM iSigma_Customer_Master
-    WHERE Market = 'Texas' AND CustomerType = 'Residential' AND FlowEnd >= '2022-07-01'
-),
-DailyDelta AS (
-    SELECT EventDate, SUM(Delta) AS NetChange FROM ActiveDelta GROUP BY EventDate
-),
-FullHistory AS (
-    SELECT
-        cal.CallDay, cal.Weekday, cal.IsHoliday,
-        bc.BaselineCount + ISNULL((SELECT SUM(dd.NetChange) FROM DailyDelta dd WHERE dd.EventDate <= cal.CallDay), 0) AS ActiveCustomerCount,
-        ivr.TexasCalls
-    FROM Calendar cal
-    CROSS JOIN BaselineCount bc
-    LEFT JOIN IVRDaily ivr ON ivr.CallDay = cal.CallDay
-    WHERE cal.CallDay < CAST(GETDATE() AS DATE)  -- only completed days
-)
-SELECT
-    Weekday,
-    COUNT(*) AS DaysObserved,
-    AVG(CAST(TexasCalls AS FLOAT) / NULLIF(ActiveCustomerCount, 0) * 1000) AS AvgCallsPer1000_NonHoliday
-FROM FullHistory
-WHERE IsHoliday = 0  -- exclude holidays, since Task 1 found these are a known weak spot
-    AND TexasCalls IS NOT NULL
-GROUP BY Weekday
-ORDER BY 
-    CASE Weekday 
-        WHEN 'Sunday' THEN 1 WHEN 'Monday' THEN 2 WHEN 'Tuesday' THEN 3 
-        WHEN 'Wednesday' THEN 4 WHEN 'Thursday' THEN 5 WHEN 'Friday' THEN 6 WHEN 'Saturday' THEN 7 
-    END;
-
-
--- STEP 1 (corrected): Day-of-week rates, matching Task 1's original call definition
-WITH BaselineCount AS (
-    SELECT COUNT(*) AS BaselineCount
-    FROM iSigma_Customer_Master
-    WHERE Market = 'Texas' AND CustomerType = 'Residential'
-        AND FlowStart < '2022-07-01'
-        AND (FlowEnd IS NULL OR FlowEnd >= '2022-07-01')
-),
-Calendar AS (
-    SELECT CAST([Date] AS DATE) AS CallDay, DayName AS Weekday,
-        CASE WHEN USHoliday IS NOT NULL THEN 1 ELSE 0 END AS IsHoliday
-    FROM vw_calendarWH WHERE [Date] >= '2022-07-01'
-),
-IVRDaily AS (
-    SELECT CAST(CallDate AS DATE) AS CallDay, COUNT(*) AS TexasCalls
-    FROM dbo.IVR
-    WHERE Department = 'Care'
-        AND CallType IN ('Inbound','Transfer')
-        AND AgentTalkTime > 0
-        AND (Queue IS NULL OR (Queue NOT LIKE '%Alberta%' AND Queue NOT LIKE '%California%' AND Queue NOT LIKE '%NorthCanada%'))
-        AND (Queue IS NULL OR Queue NOT IN (
-            'JustEnergy_Compliance_Eng','Tara_Compliance_Eng','Terrapass Enrollments ENG SPA',
-            'HudsonCommReAffEng-NewYork','Default Route','RoutingErrorFallbackQueue',
-            'SharedPool','SharedPool_Spanish','Pre Flow Retention SPA','z_ResiCSENG-COVID19'
-        ))
-        AND CallDate >= '2022-07-01'
-    GROUP BY CAST(CallDate AS DATE)
-),
-ActiveDelta AS (
-    SELECT CAST(FlowStart AS DATE) AS EventDate, 1 AS Delta
-    FROM iSigma_Customer_Master
-    WHERE Market = 'Texas' AND CustomerType = 'Residential' AND FlowStart >= '2022-07-01'
-    UNION ALL
-    SELECT CAST(DATEADD(DAY, 1, FlowEnd) AS DATE) AS EventDate, -1 AS Delta
-    FROM iSigma_Customer_Master
-    WHERE Market = 'Texas' AND CustomerType = 'Residential' AND FlowEnd >= '2022-07-01'
-),
-DailyDelta AS (
-    SELECT EventDate, SUM(Delta) AS NetChange FROM ActiveDelta GROUP BY EventDate
-),
-FullHistory AS (
-    SELECT
-        cal.CallDay, cal.Weekday, cal.IsHoliday,
-        bc.BaselineCount + ISNULL((SELECT SUM(dd.NetChange) FROM DailyDelta dd WHERE dd.EventDate <= cal.CallDay), 0) AS ActiveCustomerCount,
-        ivr.TexasCalls
-    FROM Calendar cal
-    CROSS JOIN BaselineCount bc
-    LEFT JOIN IVRDaily ivr ON ivr.CallDay = cal.CallDay
-    WHERE cal.CallDay < CAST(GETDATE() AS DATE)
-)
-SELECT
-    Weekday,
-    COUNT(*) AS DaysObserved,
-    AVG(CAST(ISNULL(TexasCalls,0) AS FLOAT) / NULLIF(ActiveCustomerCount, 0) * 1000) AS AvgCallsPer1000_NonHoliday
-FROM FullHistory
-WHERE IsHoliday = 0
-GROUP BY Weekday
-ORDER BY 
-    CASE Weekday 
-        WHEN 'Sunday' THEN 1 WHEN 'Monday' THEN 2 WHEN 'Tuesday' THEN 3 
-        WHEN 'Wednesday' THEN 4 WHEN 'Thursday' THEN 5 WHEN 'Friday' THEN 6 WHEN 'Saturday' THEN 7 
-    END;
-
-
--- Sanity check: pull raw numbers for one specific day to manually verify the rate
-SELECT 
-    COUNT(*) AS RawCallCount
-FROM dbo.IVR
-WHERE Department = 'Care'
-    AND CallType IN ('Inbound','Transfer')
-    AND AgentTalkTime > 0
-    AND CallDate >= '2026-07-01' AND CallDate < '2026-07-02'
-    AND (Queue IS NULL OR (Queue NOT LIKE '%Alberta%' AND Queue NOT LIKE '%California%' AND Queue NOT LIKE '%NorthCanada%'))
-    AND (Queue IS NULL OR Queue NOT IN (
-        'JustEnergy_Compliance_Eng','Tara_Compliance_Eng','Terrapass Enrollments ENG SPA',
-        'HudsonCommReAffEng-NewYork','Default Route','RoutingErrorFallbackQueue',
-        'SharedPool','SharedPool_Spanish','Pre Flow Retention SPA','z_ResiCSENG-COVID19'
-    ));
-
-
-
--- Diagnostic (fixed): average rate by year, computed via a clean intermediate CTE
-WITH BaselineCount AS (
-    SELECT COUNT(*) AS BaselineCount
-    FROM iSigma_Customer_Master
-    WHERE Market = 'Texas' AND CustomerType = 'Residential'
-        AND FlowStart < '2022-07-01'
-        AND (FlowEnd IS NULL OR FlowEnd >= '2022-07-01')
-),
-Calendar AS (
-    SELECT CAST([Date] AS DATE) AS CallDay,
-        CASE WHEN USHoliday IS NOT NULL THEN 1 ELSE 0 END AS IsHoliday
-    FROM vw_calendarWH WHERE [Date] >= '2022-07-01'
-),
-IVRDaily AS (
-    SELECT CAST(CallDate AS DATE) AS CallDay, COUNT(*) AS TexasCalls
-    FROM dbo.IVR
-    WHERE Department = 'Care'
-        AND CallType IN ('Inbound','Transfer')
-        AND AgentTalkTime > 0
-        AND (Queue IS NULL OR (Queue NOT LIKE '%Alberta%' AND Queue NOT LIKE '%California%' AND Queue NOT LIKE '%NorthCanada%'))
-        AND (Queue IS NULL OR Queue NOT IN (
-            'JustEnergy_Compliance_Eng','Tara_Compliance_Eng','Terrapass Enrollments ENG SPA',
-            'HudsonCommReAffEng-NewYork','Default Route','RoutingErrorFallbackQueue',
-            'SharedPool','SharedPool_Spanish','Pre Flow Retention SPA','z_ResiCSENG-COVID19'
-        ))
-        AND CallDate >= '2022-07-01'
-    GROUP BY CAST(CallDate AS DATE)
-),
-ActiveDelta AS (
-    SELECT CAST(FlowStart AS DATE) AS EventDate, 1 AS Delta
-    FROM iSigma_Customer_Master
-    WHERE Market = 'Texas' AND CustomerType = 'Residential' AND FlowStart >= '2022-07-01'
-    UNION ALL
-    SELECT CAST(DATEADD(DAY, 1, FlowEnd) AS DATE) AS EventDate, -1 AS Delta
-    FROM iSigma_Customer_Master
-    WHERE Market = 'Texas' AND CustomerType = 'Residential' AND FlowEnd >= '2022-07-01'
-),
-DailyDelta AS (
-    SELECT EventDate, SUM(Delta) AS NetChange FROM ActiveDelta GROUP BY EventDate
-),
-FullHistory AS (
-    SELECT
-        cal.CallDay,
-        cal.IsHoliday,
-        bc.BaselineCount + ISNULL((SELECT SUM(dd.NetChange) FROM DailyDelta dd WHERE dd.EventDate <= cal.CallDay), 0) AS ActiveCustomerCount,
-        ISNULL(ivr.TexasCalls, 0) AS TexasCalls
-    FROM Calendar cal
-    CROSS JOIN BaselineCount bc
-    LEFT JOIN IVRDaily ivr ON ivr.CallDay = cal.CallDay
-)
-SELECT
-    YEAR(CallDay) AS CallYear,
-    COUNT(*) AS DaysObserved,
-    AVG(CAST(ActiveCustomerCount AS FLOAT)) AS AvgActiveCustomers,
-    AVG(CAST(TexasCalls AS FLOAT)) AS AvgDailyCalls,
-    AVG(CAST(TexasCalls AS FLOAT) / NULLIF(ActiveCustomerCount, 0) * 1000) AS AvgRatePer1000
-FROM FullHistory
-WHERE IsHoliday = 0
-GROUP BY YEAR(CallDay)
-ORDER BY CallYear;
-
-
--- STEP 5a: Confirm actual column names in dbo.IVR
-SELECT COLUMN_NAME, DATA_TYPE
-FROM INFORMATION_SCHEMA.COLUMNS
-WHERE TABLE_SCHEMA = 'dbo'
-    AND TABLE_NAME = 'IVR'
-ORDER BY ORDINAL_POSITION;
-
-
--- STEP 5: Check for duplicate/multi-leg call records by year
-SELECT
-    YEAR(CallDate) AS CallYear,
-    COUNT(*) AS RawRowCount,
-    COUNT(DISTINCT ContactID) AS DistinctContactCount,
-    CAST(COUNT(*) AS FLOAT) / NULLIF(COUNT(DISTINCT ContactID), 0) AS RowsPerContact
-FROM dbo.IVR
-WHERE Department = 'Care'
-    AND CallType IN ('Inbound', 'Transfer')
-    AND AgentTalkTime > 0
-GROUP BY YEAR(CallDate)
-ORDER BY CallYear;
-
--- STEP 6: Recompute using only initial/first-leg contacts, if Step 5 confirms duplication
-SELECT
-    YEAR(CallDate) AS CallYear,
-    COUNT(*) AS FirstLegCallCount
-FROM dbo.IVR
-WHERE Department = 'Care'
-    AND CallType IN ('Inbound', 'Transfer')
-    AND AgentTalkTime > 0
-    AND (PreviousContactID IS NULL OR InitialContact = 'Yes')  -- adjust based on which field actually flags first-leg
-GROUP BY YEAR(CallDate)
-ORDER BY CallYear;
-
-
--- STEP 7: Compare event-based ActiveCustomerCount vs. direct snapshot count on sample dates
-SELECT
-    cd.CheckDate,
-    (SELECT COUNT(DISTINCT cust_id)
-     FROM iSigma_Customer_Master
-     WHERE Market = 'Texas'
-        AND CustomerType = 'Residential'
-        AND FlowStart <= cd.CheckDate
-        AND (FlowEnd IS NULL OR FlowEnd > cd.CheckDate)
-    ) AS DirectSnapshotCount
-FROM (VALUES
-    (CAST('2022-06-15' AS DATE)),
-    (CAST('2023-06-15' AS DATE)),
-    (CAST('2024-06-15' AS DATE)),
-    (CAST('2025-06-15' AS DATE)),
-    (CAST('2026-06-15' AS DATE))
-) AS cd(CheckDate)
-ORDER BY cd.CheckDate;
-
-
--- STEP 8 (corrected): Day-of-week rates using Task 1's exact call definition, 2025-2026 only
 WITH BaselineCount AS (
     SELECT COUNT(*) AS BaselineCount
     FROM iSigma_Customer_Master
@@ -586,27 +330,21 @@ FilteredCalls AS (
         AND (Queue IS NULL OR (Queue NOT LIKE '%Alberta%' AND Queue NOT LIKE '%California%' AND Queue NOT LIKE '%NorthCanada%'))
         AND CallDate >= '2025-01-01'
     GROUP BY CAST(CallDate AS DATE)
-)
+),
 
-SELECT
-    DATENAME(WEEKDAY, fh.CallDay) AS DayOfWeek,
-    DATEPART(WEEKDAY, fh.CallDay) AS DayNum,
-    COUNT(*) AS DaysObserved,
-    AVG(CAST(fh.ActiveCustomerCount AS FLOAT)) AS AvgActiveCustomers,
-    AVG(CAST(ISNULL(fc.AgentHandledCalls, 0) AS FLOAT)) AS AvgDailyCalls,
-    AVG(CAST(ISNULL(fc.AgentHandledCalls, 0) AS FLOAT)) / NULLIF(AVG(CAST(fh.ActiveCustomerCount AS FLOAT)), 0) * 1000 AS RatePer1000
-FROM FullHistory fh
-LEFT JOIN FilteredCalls fc ON fc.CallDay = fh.CallDay
-WHERE fh.IsHoliday = 0
-    AND fh.CallDay >= '2025-01-01'
-GROUP BY DATENAME(WEEKDAY, fh.CallDay), DATEPART(WEEKDAY, fh.CallDay)
-ORDER BY DayNum;
+Recomputed2526 AS (
+    SELECT
+        DATEPART(WEEKDAY, fh.CallDay) AS DayNum,
+        DATENAME(WEEKDAY, fh.CallDay) AS DayOfWeek,
+        AVG(CAST(ISNULL(fc.AgentHandledCalls, 0) AS FLOAT)) / NULLIF(AVG(CAST(fh.ActiveCustomerCount AS FLOAT)), 0) * 1000 AS NewRatePer1000
+    FROM FullHistory fh
+    LEFT JOIN FilteredCalls fc ON fc.CallDay = fh.CallDay
+    WHERE fh.IsHoliday = 0
+        AND fh.CallDay >= '2025-01-01'
+    GROUP BY DATENAME(WEEKDAY, fh.CallDay), DATEPART(WEEKDAY, fh.CallDay)
+),
 
-
--- STEP 9: Blended day-of-week forecast rates
--- Combines Task 1's original 39-day rates (40% weight) with the corrected
--- 2025-2026 rates (60% weight) to smooth over sample-size noise in either window
-WITH Task1Original AS (
+Task1Original AS (
     SELECT * FROM (VALUES
         (2, 'Monday',    6.958),
         (3, 'Tuesday',   5.498),
@@ -616,26 +354,12 @@ WITH Task1Original AS (
         (7, 'Saturday',  1.794),
         (1, 'Sunday',    0.000)
     ) AS t(DayNum, DayOfWeek, OriginalRatePer1000)
-),
-
-Recomputed2526 AS (
-    -- [Full FullHistory + FilteredCalls CTE chain from Step 8 goes here,
-    --  ending in the day-of-week SELECT that produces RatePer1000]
-    SELECT DayNum, DayOfWeek, RatePer1000 AS NewRatePer1000
-    FROM (
-        /* Step 8 query body */
-        SELECT
-            DATENAME(WEEKDAY, fh.CallDay) AS DayOfWeek,
-            DATEPART(WEEKDAY, fh.CallDay) AS DayNum,
-            AVG(CAST(ISNULL(fc.AgentHandledCalls, 0) AS FLOAT)) / NULLIF(AVG(CAST(fh.ActiveCustomerCount AS FLOAT)), 0) * 1000 AS RatePer1000
-        FROM FullHistory fh
-        LEFT JOIN FilteredCalls fc ON fc.CallDay = fh.CallDay
-        WHERE fh.IsHoliday = 0
-            AND fh.CallDay >= '2025-01-01'
-        GROUP BY DATENAME(WEEKDAY, fh.CallDay), DATEPART(WEEKDAY, fh.CallDay)
-    ) x
 )
 
+-- ============================================================================
+-- STEP 9 FINAL OUTPUT: Blended day-of-week forecast rates
+-- 40% weight to Task 1's original 39-day rates, 60% weight to corrected 2025-2026 rates
+-- ============================================================================
 SELECT
     t1.DayNum,
     t1.DayOfWeek,
@@ -645,4 +369,14 @@ SELECT
 FROM Task1Original t1
 JOIN Recomputed2526 r ON r.DayNum = t1.DayNum
 ORDER BY t1.DayNum;
+
+-- ============================================================================
+-- KNOWN LIMITATIONS (documented, not silently ignored):
+--   1. Language field on IVR is not reliable as a standalone signal — not used here.
+--   2. Alberta data does not exist before 2024-03-20 — flagged via AlbertaDataAvailability.
+--   3. USHoliday captures US holidays only; CDNHoliday exists on vw_calendarWH but
+--      is not used here since this dataset is Texas-only.
+--   4. Blend weighting (40/60) is a starting assumption, not a statistically derived
+--      optimum — flag to Jonathan as an open question if he wants a different split.
+-- ============================================================================
 
