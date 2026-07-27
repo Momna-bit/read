@@ -381,12 +381,7 @@ ORDER BY t1.DayNum;
 -- ============================================================================
 
 
--- ============================================================================
--- FORECAST-VS-ACTUALS TRACKING VIEW
--- Compares blended day-of-week forecast against actual observed call volume
--- ============================================================================
-
-CREATE OR ALTER VIEW dbo.vw_ForecastVsActuals AS
+-- FORECAST-VS-ACTUALS (ad hoc version — no CREATE VIEW permission needed)
 
 WITH BaselineCount AS (
     SELECT COUNT(*) AS BaselineCount
@@ -462,6 +457,7 @@ BlendedRates AS (
     ) AS t(DayNum, DayOfWeek, BlendedRatePer1000)
 )
 
+-- STEP 10: Check recent forecast accuracy (last 30 days)
 SELECT
     da.CallDay,
     da.Weekday,
@@ -480,11 +476,6 @@ SELECT
     END AS VariancePct
 FROM DailyActive da
 JOIN BlendedRates br ON br.DayNum = DATEPART(WEEKDAY, da.CallDay)
-LEFT JOIN ActualCalls ac ON ac.CallDay = da.CallDay;
-
--- STEP 10: Check recent forecast accuracy (last 30 days)
-SELECT *
-FROM dbo.vw_ForecastVsActuals
-WHERE CallDay >= DATEADD(DAY, -30, GETDATE())
-ORDER BY CallDay;
-
+LEFT JOIN ActualCalls ac ON ac.CallDay = da.CallDay
+WHERE da.CallDay >= DATEADD(DAY, -30, GETDATE())
+ORDER BY da.CallDay;
