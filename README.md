@@ -852,3 +852,29 @@ CROSS JOIN BaselineCount bc
 LEFT JOIN PastDueActive pd ON pd.CallDay = cal.CallDay
 LEFT JOIN IVRDaily ivr ON ivr.CallDay = cal.CallDay
 ORDER BY cal.CallDay;
+
+
+-- Spot-check: sample a handful of dates across the full range to confirm no breakage
+SELECT * FROM (
+    -- reuse the same final query, just wrap and filter
+    SELECT
+        cal.CallDay, cal.Weekday, cal.IsHoliday,
+        ISNULL(pd.PastDueCustomerCount_ActiveOnly, 0) AS PastDueCustomerCount_ActiveOnly,
+        bc.BaselineCount + ISNULL((
+            SELECT SUM(dd.NetChange) FROM DailyDelta dd WHERE dd.EventDate <= cal.CallDay
+        ), 0) AS ActiveCustomerCount,
+        ivr.TexasCalls, ivr.IVRContainmentRate_Corrected,
+        CAST(ivr.AbandonedCalls AS FLOAT) / NULLIF(ivr.QueuedCalls, 0) AS AbandonRate,
+        ivr.AvgTalkTime, ivr.TotalTransfers_Combined, ivr.AlbertaDataAvailability
+    FROM Calendar cal
+    CROSS JOIN BaselineCount bc
+    LEFT JOIN PastDueActive pd ON pd.CallDay = cal.CallDay
+    LEFT JOIN IVRDaily ivr ON ivr.CallDay = cal.CallDay
+) full_result
+WHERE CallDay IN (
+    '2023-01-15', '2023-06-15', '2023-12-25',
+    '2024-03-19', '2024-03-20', '2024-03-21',  -- right around the Alberta cutoff
+    '2024-07-04', '2025-01-01', '2025-07-04',
+    '2026-01-01', '2026-07-01', '2026-07-24'  -- most recent available
+)
+ORDER BY CallDay;
