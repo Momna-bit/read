@@ -328,3 +328,19 @@ ORDER BY
         WHEN 'Wednesday' THEN 4 WHEN 'Thursday' THEN 5 WHEN 'Friday' THEN 6 WHEN 'Saturday' THEN 7 
     END;
 
+
+-- Sanity check: pull raw numbers for one specific day to manually verify the rate
+SELECT 
+    COUNT(*) AS RawCallCount
+FROM dbo.IVR
+WHERE Department = 'Care'
+    AND CallType IN ('Inbound','Transfer')
+    AND AgentTalkTime > 0
+    AND CallDate >= '2026-07-01' AND CallDate < '2026-07-02'
+    AND (Queue IS NULL OR (Queue NOT LIKE '%Alberta%' AND Queue NOT LIKE '%California%' AND Queue NOT LIKE '%NorthCanada%'))
+    AND (Queue IS NULL OR Queue NOT IN (
+        'JustEnergy_Compliance_Eng','Tara_Compliance_Eng','Terrapass Enrollments ENG SPA',
+        'HudsonCommReAffEng-NewYork','Default Route','RoutingErrorFallbackQueue',
+        'SharedPool','SharedPool_Spanish','Pre Flow Retention SPA','z_ResiCSENG-COVID19'
+    ));
+
