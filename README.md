@@ -414,3 +414,32 @@ FROM INFORMATION_SCHEMA.COLUMNS
 WHERE TABLE_SCHEMA = 'dbo'
     AND TABLE_NAME = 'IVR'
 ORDER BY ORDINAL_POSITION;
+
+
+-- STEP 5: Check for duplicate/multi-leg call records by year
+SELECT
+    YEAR(CallDate) AS CallYear,
+    COUNT(*) AS RawRowCount,
+    COUNT(DISTINCT ContactID) AS DistinctContactCount,
+    CAST(COUNT(*) AS FLOAT) / NULLIF(COUNT(DISTINCT ContactID), 0) AS RowsPerContact
+FROM dbo.IVR
+WHERE Department = 'Care'
+    AND CallType IN ('Inbound', 'Transfer')
+    AND AgentTalkTime > 0
+GROUP BY YEAR(CallDate)
+ORDER BY CallYear;
+
+-- STEP 6: Recompute using only initial/first-leg contacts, if Step 5 confirms duplication
+SELECT
+    YEAR(CallDate) AS CallYear,
+    COUNT(*) AS FirstLegCallCount
+FROM dbo.IVR
+WHERE Department = 'Care'
+    AND CallType IN ('Inbound', 'Transfer')
+    AND AgentTalkTime > 0
+    AND (PreviousContactID IS NULL OR InitialContact = 'Yes')  -- adjust based on which field actually flags first-leg
+GROUP BY YEAR(CallDate)
+ORDER BY CallYear;
+
+
+
