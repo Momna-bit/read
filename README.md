@@ -406,3 +406,17 @@ FROM FullHistory
 WHERE IsHoliday = 0
 GROUP BY YEAR(CallDay)
 ORDER BY CallYear;
+
+
+-- STEP 5: Check for duplicate call records by year (distinct CallID vs raw row count)
+SELECT
+    YEAR(CallDateTime) AS CallYear,
+    COUNT(*) AS RawRowCount,
+    COUNT(DISTINCT CallID) AS DistinctCallCount,  -- swap CallID for your actual unique call identifier column
+    CAST(COUNT(*) AS FLOAT) / NULLIF(COUNT(DISTINCT CallID), 0) AS RowsPerCall
+FROM dbo.IVR
+WHERE Department = 'Care'
+    AND CallType IN ('Inbound', 'Transfer')
+    AND AgentTalkTime > 0
+GROUP BY YEAR(CallDateTime)
+ORDER BY CallYear;
