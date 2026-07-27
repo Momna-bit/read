@@ -462,9 +462,7 @@ FROM (VALUES
 ORDER BY cd.CheckDate;
 
 
-
--- STEP 8: Recompute day-of-week call rates using only 2025-2026 data
--- Built on top of the full Task 4 FullHistory rebuild
+-- STEP 8 (corrected): Day-of-week rates using Task 1's exact call definition, 2025-2026 only
 WITH BaselineCount AS (
     SELECT COUNT(*) AS BaselineCount
     FROM iSigma_Customer_Master
@@ -575,20 +573,32 @@ FullHistory AS (
     CROSS JOIN BaselineCount bc
     LEFT JOIN PastDueActive pd ON pd.CallDay = cal.CallDay
     LEFT JOIN IVRDaily ivr ON ivr.CallDay = cal.CallDay
+),
+
+FilteredCalls AS (
+    SELECT
+        CAST(CallDate AS DATE) AS CallDay,
+        COUNT(*) AS AgentHandledCalls
+    FROM dbo.IVR
+    WHERE Department = 'Care'
+        AND CallType IN ('Inbound', 'Transfer')
+        AND AgentTalkTime > 0
+        AND (Queue IS NULL OR (Queue NOT LIKE '%Alberta%' AND Queue NOT LIKE '%California%' AND Queue NOT LIKE '%NorthCanada%'))
+        AND CallDate >= '2025-01-01'
+    GROUP BY CAST(CallDate AS DATE)
 )
 
--- STEP 8: Day-of-week rates using only 2025-2026 data
 SELECT
-    DATENAME(WEEKDAY, CallDay) AS DayOfWeek,
-    DATEPART(WEEKDAY, CallDay) AS DayNum,
+    DATENAME(WEEKDAY, fh.CallDay) AS DayOfWeek,
+    DATEPART(WEEKDAY, fh.CallDay) AS DayNum,
     COUNT(*) AS DaysObserved,
-    AVG(CAST(ActiveCustomerCount AS FLOAT)) AS AvgActiveCustomers,
-    AVG(CAST(TexasCalls AS FLOAT)) AS AvgDailyCalls,
-    AVG(CAST(TexasCalls AS FLOAT)) / NULLIF(AVG(CAST(ActiveCustomerCount AS FLOAT)), 0) * 1000 AS RatePer1000
-FROM FullHistory
-WHERE IsHoliday = 0
-    AND CallDay >= '2025-01-01'
-GROUP BY DATENAME(WEEKDAY, CallDay), DATEPART(WEEKDAY, CallDay)
+    AVG(CAST(fh.ActiveCustomerCount AS FLOAT)) AS AvgActiveCustomers,
+    AVG(CAST(ISNULL(fc.AgentHandledCalls, 0) AS FLOAT)) AS AvgDailyCalls,
+    AVG(CAST(ISNULL(fc.AgentHandledCalls, 0) AS FLOAT)) / NULLIF(AVG(CAST(fh.ActiveCustomerCount AS FLOAT)), 0) * 1000 AS RatePer1000
+FROM FullHistory fh
+LEFT JOIN FilteredCalls fc ON fc.CallDay = fh.CallDay
+WHERE fh.IsHoliday = 0
+    AND fh.CallDay >= '2025-01-01'
+GROUP BY DATENAME(WEEKDAY, fh.CallDay), DATEPART(WEEKDAY, fh.CallDay)
 ORDER BY DayNum;
-
 
