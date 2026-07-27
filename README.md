@@ -853,28 +853,80 @@ LEFT JOIN PastDueActive pd ON pd.CallDay = cal.CallDay
 LEFT JOIN IVRDaily ivr ON ivr.CallDay = cal.CallDay
 ORDER BY cal.CallDay;
 
-
--- Spot-check: sample a handful of dates across the full range to confirm no breakage
-SELECT * FROM (
-    -- reuse the same final query, just wrap and filter
-    SELECT
-        cal.CallDay, cal.Weekday, cal.IsHoliday,
-        ISNULL(pd.PastDueCustomerCount_ActiveOnly, 0) AS PastDueCustomerCount_ActiveOnly,
-        bc.BaselineCount + ISNULL((
-            SELECT SUM(dd.NetChange) FROM DailyDelta dd WHERE dd.EventDate <= cal.CallDay
-        ), 0) AS ActiveCustomerCount,
-        ivr.TexasCalls, ivr.IVRContainmentRate_Corrected,
-        CAST(ivr.AbandonedCalls AS FLOAT) / NULLIF(ivr.QueuedCalls, 0) AS AbandonRate,
-        ivr.AvgTalkTime, ivr.TotalTransfers_Combined, ivr.AlbertaDataAvailability
-    FROM Calendar cal
-    CROSS JOIN BaselineCount bc
-    LEFT JOIN PastDueActive pd ON pd.CallDay = cal.CallDay
-    LEFT JOIN IVRDaily ivr ON ivr.CallDay = cal.CallDay
-) full_result
-WHERE CallDay IN (
-    '2023-01-15', '2023-06-15', '2023-12-25',
-    '2024-03-19', '2024-03-20', '2024-03-21',  -- right around the Alberta cutoff
-    '2024-07-04', '2025-01-01', '2025-07-04',
-    '2026-01-01', '2026-07-01', '2026-07-24'  -- most recent available
+WITH BaselineCount AS (
+    SELECT COUNT(*) AS BaselineCount
+    FROM iSigma_Customer_Master
+    WHERE Market = 'Texas' AND CustomerType = 'Residential'
+        AND FlowStart < '2022-07-01'
+        AND (FlowEnd IS NULL OR FlowEnd >= '2022-07-01')
+),
+Calendar AS (
+    SELECT CAST([Date] AS DATE) AS CallDay, DayName AS Weekday,
+        CASE WHEN USHoliday IS NOT NULL THEN 1 ELSE 0 END AS IsHoliday
+    FROM vw_calendarWH 
+    WHERE [Date] >= '2022-07-01'
+),
+PastDueActive AS (
+    SELECT CAST(pd.[Date] AS DATE) AS CallDay,
+        COUNT(DISTINCT pd.CustID) AS PastDueCustomerCount_ActiveOnly
+    FROM JESouth_CollectionAR_DailyDue pd
+    JOIN iSigma_Customer_Master cm 
+        ON cm.cust_id = pd.CustID
+        AND cm.Market = 'Texas' AND cm.CustomerType = 'Residential'
+        AND cm.FlowStart <= pd.[Date]
+        AND (cm.FlowEnd IS NULL OR cm.FlowEnd >= pd.[Date])
+    WHERE pd.[Date] >= '2022-07-01' AND pd.AR > 0
+    GROUP BY CAST(pd.[Date] AS DATE)
+),
+IVRDaily AS (
+    SELECT CAST(CallDate AS DATE) AS CallDay,
+        COUNT(*) AS TexasCalls,
+        SUM(CASE WHEN QueueTime > 0 AND AgentTalkTime = 0 THEN 1 ELSE 0 END) AS AbandonedCalls,
+        SUM(CASE WHEN QueueTime > 0 THEN 1 ELSE 0 END) AS QueuedCalls,
+        AVG(CASE WHEN AgentTalkTime > 0 THEN AgentTalkTime END) AS AvgTalkTime,
+        1.0 - (CAST(SUM(CASE WHEN QueueTime > 0 THEN 1 ELSE 0 END) AS FLOAT)
+            / NULLIF(SUM(CASE WHEN VerificationStatus = 'Verified' OR QueueTime > 0 THEN 1 ELSE 0 END), 0)) AS IVRContainmentRate_Corrected,
+        SUM(CASE WHEN TransferToQueue IS NOT NULL OR (FinalQueue IS NOT NULL AND FinalQueue <> Queue) THEN 1 ELSE 0 END) AS TotalTransfers_Combined,
+        CASE WHEN CAST(CallDate AS DATE) < '2024-03-20' THEN 'Alberta data not yet available' ELSE 'Alberta data available' END AS AlbertaDataAvailability
+    FROM dbo.IVR
+    WHERE Department = 'Care'
+        AND (Queue IS NULL OR (Queue NOT LIKE '%Alberta%' AND Queue NOT LIKE '%California%' AND Queue NOT LIKE '%NorthCanada%'))
+        AND (Queue IS NULL OR Queue NOT IN (
+            'JustEnergy_Compliance_Eng','Tara_Compliance_Eng','Terrapass Enrollments ENG SPA',
+            'HudsonCommReAffEng-NewYork','Default Route','RoutingErrorFallbackQueue',
+            'SharedPool','SharedPool_Spanish','Pre Flow Retention SPA','z_ResiCSENG-COVID19'
+        ))
+        AND CallDate >= '2022-07-01'
+    GROUP BY CAST(CallDate AS DATE)
+),
+ActiveDelta AS (
+    SELECT CAST(FlowStart AS DATE) AS EventDate, 1 AS Delta
+    FROM iSigma_Customer_Master
+    WHERE Market = 'Texas' AND CustomerType = 'Residential' AND FlowStart >= '2022-07-01'
+    UNION ALL
+    SELECT CAST(DATEADD(DAY, 1, FlowEnd) AS DATE) AS EventDate, -1 AS Delta
+    FROM iSigma_Customer_Master
+    WHERE Market = 'Texas' AND CustomerType = 'Residential' AND FlowEnd >= '2022-07-01'
+),
+DailyDelta AS (
+    SELECT EventDate, SUM(Delta) AS NetChange FROM ActiveDelta GROUP BY EventDate
 )
-ORDER BY CallDay;
+SELECT
+    cal.CallDay, cal.Weekday, cal.IsHoliday,
+    ISNULL(pd.PastDueCustomerCount_ActiveOnly, 0) AS PastDueCustomerCount_ActiveOnly,
+    bc.BaselineCount + ISNULL((SELECT SUM(dd.NetChange) FROM DailyDelta dd WHERE dd.EventDate <= cal.CallDay), 0) AS ActiveCustomerCount,
+    ivr.TexasCalls, ivr.IVRContainmentRate_Corrected,
+    CAST(ivr.AbandonedCalls AS FLOAT) / NULLIF(ivr.QueuedCalls, 0) AS AbandonRate,
+    ivr.AvgTalkTime, ivr.TotalTransfers_Combined, ivr.AlbertaDataAvailability
+FROM Calendar cal
+CROSS JOIN BaselineCount bc
+LEFT JOIN PastDueActive pd ON pd.CallDay = cal.CallDay
+LEFT JOIN IVRDaily ivr ON ivr.CallDay = cal.CallDay
+WHERE cal.CallDay IN (
+    '2023-01-15', '2023-06-15', '2023-12-25',
+    '2024-03-19', '2024-03-20', '2024-03-21',
+    '2024-07-04', '2025-01-01', '2025-07-04',
+    '2026-01-01', '2026-07-01', '2026-07-24'
+)
+ORDER BY cal.CallDay;
+
