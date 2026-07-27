@@ -443,11 +443,6 @@ ORDER BY CallYear;
 
 
 -- STEP 7: Compare event-based ActiveCustomerCount vs. direct snapshot count on sample dates
--- Pick one mid-year date per year to spot-check
-DECLARE @CheckDates TABLE (CheckDate DATE);
-INSERT INTO @CheckDates VALUES
-    ('2022-06-15'), ('2023-06-15'), ('2024-06-15'), ('2025-06-15'), ('2026-06-15');
-
 SELECT
     cd.CheckDate,
     (SELECT COUNT(DISTINCT cust_id)
@@ -457,6 +452,13 @@ SELECT
         AND FlowStart <= cd.CheckDate
         AND (FlowEnd IS NULL OR FlowEnd > cd.CheckDate)
     ) AS DirectSnapshotCount
-FROM @CheckDates cd
+FROM (VALUES
+    (CAST('2022-06-15' AS DATE)),
+    (CAST('2023-06-15' AS DATE)),
+    (CAST('2024-06-15' AS DATE)),
+    (CAST('2025-06-15' AS DATE)),
+    (CAST('2026-06-15' AS DATE))
+) AS cd(CheckDate)
 ORDER BY cd.CheckDate;
+
 
