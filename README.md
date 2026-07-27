@@ -442,4 +442,21 @@ GROUP BY YEAR(CallDate)
 ORDER BY CallYear;
 
 
+-- STEP 7: Compare event-based ActiveCustomerCount vs. direct snapshot count on sample dates
+-- Pick one mid-year date per year to spot-check
+DECLARE @CheckDates TABLE (CheckDate DATE);
+INSERT INTO @CheckDates VALUES
+    ('2022-06-15'), ('2023-06-15'), ('2024-06-15'), ('2025-06-15'), ('2026-06-15');
+
+SELECT
+    cd.CheckDate,
+    (SELECT COUNT(DISTINCT cust_id)
+     FROM iSigma_Customer_Master
+     WHERE Market = 'Texas'
+        AND CustomerType = 'Residential'
+        AND FlowStart <= cd.CheckDate
+        AND (FlowEnd IS NULL OR FlowEnd > cd.CheckDate)
+    ) AS DirectSnapshotCount
+FROM @CheckDates cd
+ORDER BY cd.CheckDate;
 
