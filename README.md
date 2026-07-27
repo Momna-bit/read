@@ -635,3 +635,70 @@ SELECT
     ), 0) AS ActiveCustomerCount
 FROM (SELECT DISTINCT CAST([Date] AS DATE) AS CallDay FROM vw_calendarWH WHERE [Date] >= '2022-07-01') cal
 ORDER BY cal.CallDay;
+
+
+
+-- TASK 4 (FULL REBUILD, FINAL): Baseline forecasting dataset, end-to-end, Texas
+DECLARE @BaselineCount INT = (
+    SELECT COUNT(*)
+    FROM iSigma_Customer_Master
+    WHERE Market = 'Texas' AND CustomerType = 'Residential'
+        AND FlowStart < '2022-07-01'
+        AND (FlowEnd IS NULL OR FlowEnd >= '2022-07-01')
+);
+
+WITH Calendar AS (
+    SELECT CAST([Date] AS DATE) AS CallDay, DayName AS Weekday,
+        CASE WHEN USHoliday IS NOT NULL THEN 1 ELSE 0 END AS IsHoliday
+    FROM vw_calendarWH WHERE [Date] >= '2022-07-01'
+),
+PastDueActive AS (
+    SELECT CAST(pd.[Date] AS DATE) AS CallDay,
+        COUNT(DISTINCT pd.CustID) AS PastDueCustomerCount_ActiveOnly
+    FROM JESouth_CollectionAR_DailyDue pd
+    JOIN iSigma_Customer_Master cm ON cm.cust_id = pd.CustID
+        AND cm.Market = 'Texas' AND cm.CustomerType = 'Residential'
+        AND cm.FlowStart <= pd.[Date]
+        AND (cm.FlowEnd IS NULL OR cm.FlowEnd >= pd.[Date])
+    WHERE pd.[Date] >= '2022-07-01' AND pd.AR > 0
+    GROUP BY CAST(pd.[Date] AS DATE)
+),
+IVRDaily AS (
+    SELECT CAST(CallDate AS DATE) AS CallDay,
+        COUNT(*) AS TexasCalls,
+        SUM(CASE WHEN QueueTime > 0 AND AgentTalkTime = 0 THEN 1 ELSE 0 END) AS AbandonedCalls,
+        SUM(CASE WHEN QueueTime > 0 THEN 1 ELSE 0 END) AS QueuedCalls,
+        AVG(CASE WHEN AgentTalkTime > 0 THEN AgentTalkTime END) AS AvgTalkTime,
+        1.0 - (CAST(SUM(CASE WHEN QueueTime > 0 THEN 1 ELSE 0 END) AS FLOAT)
+            / NULLIF(SUM(CASE WHEN VerificationStatus = 'Verified' OR QueueTime > 0 THEN 1 ELSE 0 END), 0)) AS IVRContainmentRate_Corrected,
+        SUM(CASE WHEN TransferToQueue IS NOT NULL OR (FinalQueue IS NOT NULL AND FinalQueue <> Queue) THEN 1 ELSE 0 END) AS TotalTransfers_Combined,
+        CASE WHEN CAST(CallDate AS DATE) < '2024-03-20' THEN 'Alberta data not yet available' ELSE 'Alberta data available' END AS AlbertaDataAvailability
+    FROM dbo.IVR
+    WHERE Department = 'Care'
+        AND (Queue IS NULL OR (Queue NOT LIKE '%Alberta%' AND Queue NOT LIKE '%California%' AND Queue NOT LIKE '%NorthCanada%'))
+        AND CallDate >= '2022-07-01'
+    GROUP BY CAST(CallDate AS DATE)
+),
+ActiveDelta AS (
+    SELECT CAST(FlowStart AS DATE) AS EventDate, 1 AS Delta
+    FROM iSigma_Customer_Master
+    WHERE Market = 'Texas' AND CustomerType = 'Residential' AND FlowStart >= '2022-07-01'
+    UNION ALL
+    SELECT CAST(DATEADD(DAY, 1, FlowEnd) AS DATE) AS EventDate, -1 AS Delta
+    FROM iSigma_Customer_Master
+    WHERE Market = 'Texas' AND CustomerType = 'Residential' AND FlowEnd >= '2022-07-01'
+),
+DailyDelta AS (
+    SELECT EventDate, SUM(Delta) AS NetChange FROM ActiveDelta GROUP BY EventDate
+)
+SELECT
+    cal.CallDay, cal.Weekday, cal.IsHoliday,
+    ISNULL(pd.PastDueCustomerCount_ActiveOnly, 0) AS PastDueCustomerCount_ActiveOnly,
+    @BaselineCount + ISNULL((SELECT SUM(dd.NetChange) FROM DailyDelta dd WHERE dd.EventDate <= cal.CallDay), 0) AS ActiveCustomerCount,
+    ivr.TexasCalls, ivr.IVRContainmentRate_Corrected,
+    CAST(ivr.AbandonedCalls AS FLOAT) / NULLIF(ivr.QueuedCalls, 0) AS AbandonRate,
+    ivr.AvgTalkTime, ivr.TotalTransfers_Combined, ivr.AlbertaDataAvailability
+FROM Calendar cal
+LEFT JOIN PastDueActive pd ON pd.CallDay = cal.CallDay
+LEFT JOIN IVRDaily ivr ON ivr.CallDay = cal.CallDay
+ORDER BY cal.CallDay;
