@@ -602,3 +602,47 @@ WHERE fh.IsHoliday = 0
 GROUP BY DATENAME(WEEKDAY, fh.CallDay), DATEPART(WEEKDAY, fh.CallDay)
 ORDER BY DayNum;
 
+
+-- STEP 9: Blended day-of-week forecast rates
+-- Combines Task 1's original 39-day rates (40% weight) with the corrected
+-- 2025-2026 rates (60% weight) to smooth over sample-size noise in either window
+WITH Task1Original AS (
+    SELECT * FROM (VALUES
+        (2, 'Monday',    6.958),
+        (3, 'Tuesday',   5.498),
+        (4, 'Wednesday', 5.183),
+        (5, 'Thursday',  4.462),
+        (6, 'Friday',    4.223),
+        (7, 'Saturday',  1.794),
+        (1, 'Sunday',    0.000)
+    ) AS t(DayNum, DayOfWeek, OriginalRatePer1000)
+),
+
+Recomputed2526 AS (
+    -- [Full FullHistory + FilteredCalls CTE chain from Step 8 goes here,
+    --  ending in the day-of-week SELECT that produces RatePer1000]
+    SELECT DayNum, DayOfWeek, RatePer1000 AS NewRatePer1000
+    FROM (
+        /* Step 8 query body */
+        SELECT
+            DATENAME(WEEKDAY, fh.CallDay) AS DayOfWeek,
+            DATEPART(WEEKDAY, fh.CallDay) AS DayNum,
+            AVG(CAST(ISNULL(fc.AgentHandledCalls, 0) AS FLOAT)) / NULLIF(AVG(CAST(fh.ActiveCustomerCount AS FLOAT)), 0) * 1000 AS RatePer1000
+        FROM FullHistory fh
+        LEFT JOIN FilteredCalls fc ON fc.CallDay = fh.CallDay
+        WHERE fh.IsHoliday = 0
+            AND fh.CallDay >= '2025-01-01'
+        GROUP BY DATENAME(WEEKDAY, fh.CallDay), DATEPART(WEEKDAY, fh.CallDay)
+    ) x
+)
+
+SELECT
+    t1.DayNum,
+    t1.DayOfWeek,
+    t1.OriginalRatePer1000,
+    r.NewRatePer1000,
+    ROUND((t1.OriginalRatePer1000 * 0.4) + (r.NewRatePer1000 * 0.6), 3) AS BlendedRatePer1000
+FROM Task1Original t1
+JOIN Recomputed2526 r ON r.DayNum = t1.DayNum
+ORDER BY t1.DayNum;
+
