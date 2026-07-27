@@ -761,9 +761,7 @@ IVRDaily AS (
         END AS AlbertaDataAvailability
     FROM dbo.IVR
     WHERE Department = 'Care'
-        -- Exclude Alberta / other-market queues (existing logic)
         AND (Queue IS NULL OR (Queue NOT LIKE '%Alberta%' AND Queue NOT LIKE '%California%' AND Queue NOT LIKE '%NorthCanada%'))
-        -- Exclude queues Jonathan confirmed should be removed entirely from Care call volume
         AND (Queue IS NULL OR Queue NOT IN (
             'JustEnergy_Compliance_Eng',
             'Tara_Compliance_Eng',
