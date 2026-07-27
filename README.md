@@ -346,7 +346,7 @@ WHERE Department = 'Care'
 
 
 
--- Diagnostic: average rate by year, not just by weekday, to isolate the inflation
+-- Diagnostic (fixed): average rate by year, computed via a clean intermediate CTE
 WITH BaselineCount AS (
     SELECT COUNT(*) AS BaselineCount
     FROM iSigma_Customer_Master
@@ -385,16 +385,24 @@ ActiveDelta AS (
 ),
 DailyDelta AS (
     SELECT EventDate, SUM(Delta) AS NetChange FROM ActiveDelta GROUP BY EventDate
+),
+FullHistory AS (
+    SELECT
+        cal.CallDay,
+        cal.IsHoliday,
+        bc.BaselineCount + ISNULL((SELECT SUM(dd.NetChange) FROM DailyDelta dd WHERE dd.EventDate <= cal.CallDay), 0) AS ActiveCustomerCount,
+        ISNULL(ivr.TexasCalls, 0) AS TexasCalls
+    FROM Calendar cal
+    CROSS JOIN BaselineCount bc
+    LEFT JOIN IVRDaily ivr ON ivr.CallDay = cal.CallDay
 )
 SELECT
-    YEAR(cal.CallDay) AS CallYear,
+    YEAR(CallDay) AS CallYear,
     COUNT(*) AS DaysObserved,
-    AVG(bc.BaselineCount + ISNULL((SELECT SUM(dd.NetChange) FROM DailyDelta dd WHERE dd.EventDate <= cal.CallDay), 0)) AS AvgActiveCustomers,
-    AVG(CAST(ISNULL(ivr.TexasCalls,0) AS FLOAT)) AS AvgDailyCalls,
-    AVG(CAST(ISNULL(ivr.TexasCalls,0) AS FLOAT) / NULLIF(bc.BaselineCount + ISNULL((SELECT SUM(dd.NetChange) FROM DailyDelta dd WHERE dd.EventDate <= cal.CallDay), 0), 0) * 1000) AS AvgRatePer1000
-FROM Calendar cal
-CROSS JOIN BaselineCount bc
-LEFT JOIN IVRDaily ivr ON ivr.CallDay = cal.CallDay
-WHERE cal.IsHoliday = 0
-GROUP BY YEAR(cal.CallDay)
+    AVG(CAST(ActiveCustomerCount AS FLOAT)) AS AvgActiveCustomers,
+    AVG(CAST(TexasCalls AS FLOAT)) AS AvgDailyCalls,
+    AVG(CAST(TexasCalls AS FLOAT) / NULLIF(ActiveCustomerCount, 0) * 1000) AS AvgRatePer1000
+FROM FullHistory
+WHERE IsHoliday = 0
+GROUP BY YEAR(CallDay)
 ORDER BY CallYear;
