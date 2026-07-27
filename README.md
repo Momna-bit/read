@@ -594,3 +594,44 @@ FROM Calendar cal
 LEFT JOIN PastDueActive pd ON pd.CallDay = cal.CallDay
 LEFT JOIN IVRDaily ivr ON ivr.CallDay = cal.CallDay
 ORDER BY cal.CallDay;
+
+
+-- STEP: Active customer count per day (event-based, not brute-force join)
+
+-- Baseline: customers already active before the dataset window starts
+DECLARE @BaselineCount INT = (
+    SELECT COUNT(*)
+    FROM iSigma_Customer_Master
+    WHERE Market = 'Texas'
+        AND CustomerType = 'Residential'
+        AND FlowStart < '2022-07-01'
+        AND (FlowEnd IS NULL OR FlowEnd >= '2022-07-01')
+);
+
+WITH ActiveDelta AS (
+    -- +1 on the day a customer's flow starts
+    SELECT CAST(FlowStart AS DATE) AS EventDate, 1 AS Delta
+    FROM iSigma_Customer_Master
+    WHERE Market = 'Texas' AND CustomerType = 'Residential'
+        AND FlowStart >= '2022-07-01'
+
+    UNION ALL
+
+    -- -1 the day after a customer's flow ends
+    SELECT CAST(DATEADD(DAY, 1, FlowEnd) AS DATE) AS EventDate, -1 AS Delta
+    FROM iSigma_Customer_Master
+    WHERE Market = 'Texas' AND CustomerType = 'Residential'
+        AND FlowEnd >= '2022-07-01'
+),
+DailyDelta AS (
+    SELECT EventDate, SUM(Delta) AS NetChange
+    FROM ActiveDelta
+    GROUP BY EventDate
+)
+SELECT
+    cal.CallDay,
+    @BaselineCount + ISNULL((
+        SELECT SUM(dd.NetChange) FROM DailyDelta dd WHERE dd.EventDate <= cal.CallDay
+    ), 0) AS ActiveCustomerCount
+FROM (SELECT DISTINCT CAST([Date] AS DATE) AS CallDay FROM vw_calendarWH WHERE [Date] >= '2022-07-01') cal
+ORDER BY cal.CallDay;
