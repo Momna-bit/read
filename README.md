@@ -344,3 +344,57 @@ WHERE Department = 'Care'
         'SharedPool','SharedPool_Spanish','Pre Flow Retention SPA','z_ResiCSENG-COVID19'
     ));
 
+
+
+-- Diagnostic: average rate by year, not just by weekday, to isolate the inflation
+WITH BaselineCount AS (
+    SELECT COUNT(*) AS BaselineCount
+    FROM iSigma_Customer_Master
+    WHERE Market = 'Texas' AND CustomerType = 'Residential'
+        AND FlowStart < '2022-07-01'
+        AND (FlowEnd IS NULL OR FlowEnd >= '2022-07-01')
+),
+Calendar AS (
+    SELECT CAST([Date] AS DATE) AS CallDay,
+        CASE WHEN USHoliday IS NOT NULL THEN 1 ELSE 0 END AS IsHoliday
+    FROM vw_calendarWH WHERE [Date] >= '2022-07-01'
+),
+IVRDaily AS (
+    SELECT CAST(CallDate AS DATE) AS CallDay, COUNT(*) AS TexasCalls
+    FROM dbo.IVR
+    WHERE Department = 'Care'
+        AND CallType IN ('Inbound','Transfer')
+        AND AgentTalkTime > 0
+        AND (Queue IS NULL OR (Queue NOT LIKE '%Alberta%' AND Queue NOT LIKE '%California%' AND Queue NOT LIKE '%NorthCanada%'))
+        AND (Queue IS NULL OR Queue NOT IN (
+            'JustEnergy_Compliance_Eng','Tara_Compliance_Eng','Terrapass Enrollments ENG SPA',
+            'HudsonCommReAffEng-NewYork','Default Route','RoutingErrorFallbackQueue',
+            'SharedPool','SharedPool_Spanish','Pre Flow Retention SPA','z_ResiCSENG-COVID19'
+        ))
+        AND CallDate >= '2022-07-01'
+    GROUP BY CAST(CallDate AS DATE)
+),
+ActiveDelta AS (
+    SELECT CAST(FlowStart AS DATE) AS EventDate, 1 AS Delta
+    FROM iSigma_Customer_Master
+    WHERE Market = 'Texas' AND CustomerType = 'Residential' AND FlowStart >= '2022-07-01'
+    UNION ALL
+    SELECT CAST(DATEADD(DAY, 1, FlowEnd) AS DATE) AS EventDate, -1 AS Delta
+    FROM iSigma_Customer_Master
+    WHERE Market = 'Texas' AND CustomerType = 'Residential' AND FlowEnd >= '2022-07-01'
+),
+DailyDelta AS (
+    SELECT EventDate, SUM(Delta) AS NetChange FROM ActiveDelta GROUP BY EventDate
+)
+SELECT
+    YEAR(cal.CallDay) AS CallYear,
+    COUNT(*) AS DaysObserved,
+    AVG(bc.BaselineCount + ISNULL((SELECT SUM(dd.NetChange) FROM DailyDelta dd WHERE dd.EventDate <= cal.CallDay), 0)) AS AvgActiveCustomers,
+    AVG(CAST(ISNULL(ivr.TexasCalls,0) AS FLOAT)) AS AvgDailyCalls,
+    AVG(CAST(ISNULL(ivr.TexasCalls,0) AS FLOAT) / NULLIF(bc.BaselineCount + ISNULL((SELECT SUM(dd.NetChange) FROM DailyDelta dd WHERE dd.EventDate <= cal.CallDay), 0), 0) * 1000) AS AvgRatePer1000
+FROM Calendar cal
+CROSS JOIN BaselineCount bc
+LEFT JOIN IVRDaily ivr ON ivr.CallDay = cal.CallDay
+WHERE cal.IsHoliday = 0
+GROUP BY YEAR(cal.CallDay)
+ORDER BY CallYear;
