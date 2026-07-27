@@ -380,3 +380,111 @@ ORDER BY t1.DayNum;
 --      optimum — flag to Jonathan as an open question if he wants a different split.
 -- ============================================================================
 
+
+-- ============================================================================
+-- FORECAST-VS-ACTUALS TRACKING VIEW
+-- Compares blended day-of-week forecast against actual observed call volume
+-- ============================================================================
+
+CREATE OR ALTER VIEW dbo.vw_ForecastVsActuals AS
+
+WITH BaselineCount AS (
+    SELECT COUNT(*) AS BaselineCount
+    FROM iSigma_Customer_Master
+    WHERE Market = 'Texas' AND CustomerType = 'Residential'
+        AND FlowStart < '2022-07-01'
+        AND (FlowEnd IS NULL OR FlowEnd >= '2022-07-01')
+),
+
+Calendar AS (
+    SELECT 
+        CAST([Date] AS DATE) AS CallDay, 
+        DayName AS Weekday,
+        CASE WHEN USHoliday IS NOT NULL THEN 1 ELSE 0 END AS IsHoliday
+    FROM vw_calendarWH 
+    WHERE [Date] >= '2022-07-01'
+),
+
+ActiveDelta AS (
+    SELECT CAST(FlowStart AS DATE) AS EventDate, 1 AS Delta
+    FROM iSigma_Customer_Master
+    WHERE Market = 'Texas' AND CustomerType = 'Residential' 
+        AND FlowStart >= '2022-07-01'
+    UNION ALL
+    SELECT CAST(DATEADD(DAY, 1, FlowEnd) AS DATE) AS EventDate, -1 AS Delta
+    FROM iSigma_Customer_Master
+    WHERE Market = 'Texas' AND CustomerType = 'Residential' 
+        AND FlowEnd >= '2022-07-01'
+),
+
+DailyDelta AS (
+    SELECT EventDate, SUM(Delta) AS NetChange 
+    FROM ActiveDelta 
+    GROUP BY EventDate
+),
+
+DailyActive AS (
+    SELECT
+        cal.CallDay,
+        cal.Weekday,
+        cal.IsHoliday,
+        bc.BaselineCount + ISNULL((
+            SELECT SUM(dd.NetChange) 
+            FROM DailyDelta dd 
+            WHERE dd.EventDate <= cal.CallDay
+        ), 0) AS ActiveCustomerCount
+    FROM Calendar cal
+    CROSS JOIN BaselineCount bc
+),
+
+ActualCalls AS (
+    SELECT
+        CAST(CallDate AS DATE) AS CallDay,
+        COUNT(*) AS ActualCalls
+    FROM dbo.IVR
+    WHERE Department = 'Care'
+        AND CallType IN ('Inbound', 'Transfer')
+        AND AgentTalkTime > 0
+        AND (Queue IS NULL OR (Queue NOT LIKE '%Alberta%' AND Queue NOT LIKE '%California%' AND Queue NOT LIKE '%NorthCanada%'))
+        AND CallDate >= '2022-07-01'
+    GROUP BY CAST(CallDate AS DATE)
+),
+
+BlendedRates AS (
+    SELECT * FROM (VALUES
+        (1, 'Sunday',    0.000),
+        (2, 'Monday',    7.814),
+        (3, 'Tuesday',   6.513),
+        (4, 'Wednesday', 5.872),
+        (5, 'Thursday',  5.188),
+        (6, 'Friday',    5.397),
+        (7, 'Saturday',  2.162)
+    ) AS t(DayNum, DayOfWeek, BlendedRatePer1000)
+)
+
+SELECT
+    da.CallDay,
+    da.Weekday,
+    da.IsHoliday,
+    da.ActiveCustomerCount,
+    br.BlendedRatePer1000,
+    ROUND((br.BlendedRatePer1000 / 1000.0) * da.ActiveCustomerCount, 0) AS ForecastedCalls,
+    ISNULL(ac.ActualCalls, 0) AS ActualCalls,
+    ISNULL(ac.ActualCalls, 0) - ROUND((br.BlendedRatePer1000 / 1000.0) * da.ActiveCustomerCount, 0) AS Variance,
+    CASE 
+        WHEN ROUND((br.BlendedRatePer1000 / 1000.0) * da.ActiveCustomerCount, 0) = 0 THEN NULL
+        ELSE ROUND(
+            (ISNULL(ac.ActualCalls, 0) - ROUND((br.BlendedRatePer1000 / 1000.0) * da.ActiveCustomerCount, 0)) 
+            / ROUND((br.BlendedRatePer1000 / 1000.0) * da.ActiveCustomerCount, 0) * 100.0
+        , 1)
+    END AS VariancePct
+FROM DailyActive da
+JOIN BlendedRates br ON br.DayNum = DATEPART(WEEKDAY, da.CallDay)
+LEFT JOIN ActualCalls ac ON ac.CallDay = da.CallDay;
+
+-- STEP 10: Check recent forecast accuracy (last 30 days)
+SELECT *
+FROM dbo.vw_ForecastVsActuals
+WHERE CallDay >= DATEADD(DAY, -30, GETDATE())
+ORDER BY CallDay;
+
