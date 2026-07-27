@@ -740,6 +740,41 @@ LEFT JOIN IVRDaily ivr ON ivr.CallDay = cal.CallDay
 ORDER BY cal.CallDay;
 
 
+-- TASK 4 (FULL REBUILD, FINAL, CLEAN): Baseline forecasting dataset, end-to-end, Texas
+
+WITH BaselineCount AS (
+    SELECT COUNT(*) AS BaselineCount
+    FROM iSigma_Customer_Master
+    WHERE Market = 'Texas' AND CustomerType = 'Residential'
+        AND FlowStart < '2022-07-01'
+        AND (FlowEnd IS NULL OR FlowEnd >= '2022-07-01')
+),
+
+Calendar AS (
+    SELECT 
+        CAST([Date] AS DATE) AS CallDay, 
+        DayName AS Weekday,
+        CASE WHEN USHoliday IS NOT NULL THEN 1 ELSE 0 END AS IsHoliday
+    FROM vw_calendarWH 
+    WHERE [Date] >= '2022-07-01'
+),
+
+PastDueActive AS (
+    SELECT 
+        CAST(pd.[Date] AS DATE) AS CallDay,
+        COUNT(DISTINCT pd.CustID) AS PastDueCustomerCount_ActiveOnly
+    FROM JESouth_CollectionAR_DailyDue pd
+    JOIN iSigma_Customer_Master cm 
+        ON cm.cust_id = pd.CustID
+        AND cm.Market = 'Texas' 
+        AND cm.CustomerType = 'Residential'
+        AND cm.FlowStart <= pd.[Date]
+        AND (cm.FlowEnd IS NULL OR cm.FlowEnd >= pd.[Date])
+    WHERE pd.[Date] >= '2022-07-01' 
+        AND pd.AR > 0
+    GROUP BY CAST(pd.[Date] AS DATE)
+),
+
 IVRDaily AS (
     SELECT 
         CAST(CallDate AS DATE) AS CallDay,
@@ -776,4 +811,44 @@ IVRDaily AS (
         ))
         AND CallDate >= '2022-07-01'
     GROUP BY CAST(CallDate AS DATE)
+),
+
+ActiveDelta AS (
+    SELECT CAST(FlowStart AS DATE) AS EventDate, 1 AS Delta
+    FROM iSigma_Customer_Master
+    WHERE Market = 'Texas' AND CustomerType = 'Residential' 
+        AND FlowStart >= '2022-07-01'
+    UNION ALL
+    SELECT CAST(DATEADD(DAY, 1, FlowEnd) AS DATE) AS EventDate, -1 AS Delta
+    FROM iSigma_Customer_Master
+    WHERE Market = 'Texas' AND CustomerType = 'Residential' 
+        AND FlowEnd >= '2022-07-01'
+),
+
+DailyDelta AS (
+    SELECT EventDate, SUM(Delta) AS NetChange 
+    FROM ActiveDelta 
+    GROUP BY EventDate
 )
+
+SELECT
+    cal.CallDay, 
+    cal.Weekday, 
+    cal.IsHoliday,
+    ISNULL(pd.PastDueCustomerCount_ActiveOnly, 0) AS PastDueCustomerCount_ActiveOnly,
+    bc.BaselineCount + ISNULL((
+        SELECT SUM(dd.NetChange) 
+        FROM DailyDelta dd 
+        WHERE dd.EventDate <= cal.CallDay
+    ), 0) AS ActiveCustomerCount,
+    ivr.TexasCalls, 
+    ivr.IVRContainmentRate_Corrected,
+    CAST(ivr.AbandonedCalls AS FLOAT) / NULLIF(ivr.QueuedCalls, 0) AS AbandonRate,
+    ivr.AvgTalkTime, 
+    ivr.TotalTransfers_Combined, 
+    ivr.AlbertaDataAvailability
+FROM Calendar cal
+CROSS JOIN BaselineCount bc
+LEFT JOIN PastDueActive pd ON pd.CallDay = cal.CallDay
+LEFT JOIN IVRDaily ivr ON ivr.CallDay = cal.CallDay
+ORDER BY cal.CallDay;
