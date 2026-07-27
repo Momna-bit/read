@@ -461,4 +461,18 @@ FROM (VALUES
 ) AS cd(CheckDate)
 ORDER BY cd.CheckDate;
 
+-- STEP 8: Recompute day-of-week call rates using only 2025-2026 data (recency window)
+-- Compare against Task 1's original 39-day rates as a sanity check
+SELECT
+    DATENAME(WEEKDAY, CallDay) AS DayOfWeek,
+    DATEPART(WEEKDAY, CallDay) AS DayNum,  -- for sorting Mon-Sun
+    COUNT(*) AS DaysObserved,
+    AVG(CAST(ActiveCustomerCount AS FLOAT)) AS AvgActiveCustomers,
+    AVG(CAST(TexasCalls AS FLOAT)) AS AvgDailyCalls,
+    AVG(CAST(TexasCalls AS FLOAT)) / NULLIF(AVG(CAST(ActiveCustomerCount AS FLOAT)), 0) * 1000 AS RatePer1000
+FROM FullHistory
+WHERE IsHoliday = 0
+    AND CallDay >= '2025-01-01'
+GROUP BY DATENAME(WEEKDAY, CallDay), DATEPART(WEEKDAY, CallDay)
+ORDER BY DayNum;
 
