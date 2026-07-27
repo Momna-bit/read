@@ -1,4 +1,4 @@
-o	
+	
 Pehle terminal dekh -> git bash
 
 (step by step check karna. Example node -v likh ke hit enter)
@@ -42,7 +42,416 @@ npm run dev
 
 
 
+task 5 follow up
+-- STEP 11: Find the exact Salesforce autopay log and billing account bridge view names
+SELECT TABLE_NAME
+FROM INFORMATION_SCHEMA.VIEWS
+WHERE TABLE_NAME LIKE '%Salesforce%AutoPay%'
+   OR TABLE_NAME LIKE '%Salesforce%Billing%Account%';
 
+-- STEP 12: Confirm columns on both Salesforce views before joining
+SELECT COLUMN_NAME, DATA_TYPE
+FROM INFORMATION_SCHEMA.COLUMNS
+WHERE TABLE_NAME = 'vw_Salesforce_Autopay'
+ORDER BY ORDINAL_POSITION;
+
+SELECT COLUMN_NAME, DATA_TYPE
+FROM INFORMATION_SCHEMA.COLUMNS
+WHERE TABLE_NAME = 'vw_Salesforce_BillingAccount'
+ORDER BY ORDINAL_POSITION;
+
+-- STEP 13: Confirm what Action, Add, and Remove actually represent
+SELECT TOP 20 AccountID, Created, Action, [Add], [Remove]
+FROM vw_Salesforce_Autopay
+ORDER BY Created DESC;
+
+-- STEP 14: Join autopay events to billing account bridge to get real cust_id
+SELECT TOP 20
+    sa.AccountID,
+    sa.Created AS EventDate,
+    sa.Action,
+    ba.CustID
+FROM vw_Salesforce_Autopay sa
+JOIN vw_Salesforce_BillingAccount ba ON ba.ID = sa.AccountID
+WHERE sa.Action = 'Remove'
+ORDER BY sa.Created DESC;
+
+
+-- STEP 15: Join real autopay-removal events to Remove Autopay calls
+SELECT TOP 20
+    cai.ContactID,
+    cai.[Date] AS CallDate,
+    ba.CustID,
+    sa.Created AS AutopayRemovedDate,
+    DATEDIFF(DAY, sa.Created, cai.[Date]) AS DaysBetweenRemovalAndCall
+FROM Care_CallAI cai
+JOIN dbo.IVR ivr ON ivr.ContactID = cai.ContactID
+JOIN vw_Salesforce_BillingAccount ba ON ba.CustID = ivr.AccountNumber
+JOIN vw_Salesforce_Autopay sa ON sa.AccountID = ba.ID AND sa.Action = 'Remove'
+WHERE cai.[call.reason] = 'Remove Autopay'
+ORDER BY cai.[Date] DESC;
+
+
+-- STEP 16: For each Remove Autopay call, find the most recent Add event BEFORE the call
+SELECT TOP 20
+    cai.ContactID,
+    cai.[Date] AS CallDate,
+    ba.CustID,
+    add_evt.LastAddDate,
+    DATEDIFF(DAY, add_evt.LastAddDate, cai.[Date]) AS DaysOnAutopayBeforeCall
+FROM Care_CallAI cai
+JOIN dbo.IVR ivr ON ivr.ContactID = cai.ContactID
+JOIN vw_Salesforce_BillingAccount ba ON ba.CustID = ivr.AccountNumber
+CROSS APPLY (
+    SELECT MAX(sa.Created) AS LastAddDate
+    FROM vw_Salesforce_Autopay sa
+    WHERE sa.AccountID = ba.ID
+      AND sa.Action = 'Add'
+      AND sa.Created <= cai.[Date]
+) add_evt
+WHERE cai.[call.reason] = 'Remove Autopay'
+ORDER BY cai.[Date] DESC;
+
+-- STEP 17: Rebucket "days on autopay before call" using real event history
+WITH RemovalWithRealTenure AS (
+    SELECT
+        cai.ContactID,
+        cai.[Date] AS CallDate,
+        ba.CustID,
+        add_evt.LastAddDate,
+        DATEDIFF(DAY, add_evt.LastAddDate, cai.[Date]) AS DaysOnAutopayBeforeCall
+    FROM Care_CallAI cai
+    JOIN dbo.IVR ivr ON ivr.ContactID = cai.ContactID
+    JOIN vw_Salesforce_BillingAccount ba ON ba.CustID = ivr.AccountNumber
+    CROSS APPLY (
+        SELECT MAX(sa.Created) AS LastAddDate
+        FROM vw_Salesforce_Autopay sa
+        WHERE sa.AccountID = ba.ID
+          AND sa.Action = 'Add'
+          AND sa.Created <= cai.[Date]
+    ) add_evt
+    WHERE cai.[call.reason] = 'Remove Autopay'
+)
+SELECT
+    CASE
+        WHEN DaysOnAutopayBeforeCall IS NULL THEN 'No prior Add event found'
+        WHEN DaysOnAutopayBeforeCall <= 30 THEN 'New enrollee (0-30 days)'
+        WHEN DaysOnAutopayBeforeCall <= 90 THEN 'Recent enrollee (31-90 days)'
+        ELSE 'Long-time autopay customer (90+ days)'
+    END AS Category,
+    COUNT(*) AS Calls,
+    CAST(COUNT(*) AS FLOAT) / SUM(COUNT(*)) OVER () AS PctOfCalls
+FROM RemovalWithRealTenure
+GROUP BY
+    CASE
+        WHEN DaysOnAutopayBeforeCall IS NULL THEN 'No prior Add event found'
+        WHEN DaysOnAutopayBeforeCall <= 30 THEN 'New enrollee (0-30 days)'
+        WHEN DaysOnAutopayBeforeCall <= 90 THEN 'Recent enrollee (31-90 days)'
+        ELSE 'Long-time autopay customer (90+ days)'
+    END
+ORDER BY Calls DESC;
+
+
+-- STEP 18: Investigate the "No prior Add event" group
+WITH RemovalWithRealTenure AS (
+    SELECT
+        cai.ContactID,
+        cai.[Date] AS CallDate,
+        ba.CustID,
+        ba.ID AS SalesforceAccountID,
+        add_evt.LastAddDate
+    FROM Care_CallAI cai
+    JOIN dbo.IVR ivr ON ivr.ContactID = cai.ContactID
+    JOIN vw_Salesforce_BillingAccount ba ON ba.CustID = ivr.AccountNumber
+    CROSS APPLY (
+        SELECT MAX(sa.Created) AS LastAddDate
+        FROM vw_Salesforce_Autopay sa
+        WHERE sa.AccountID = ba.ID
+          AND sa.Action = 'Add'
+          AND sa.Created <= cai.[Date]
+    ) add_evt
+    WHERE cai.[call.reason] = 'Remove Autopay'
+)
+SELECT TOP 20
+    ContactID,
+    CallDate,
+    CustID,
+    SalesforceAccountID
+FROM RemovalWithRealTenure
+WHERE LastAddDate IS NULL
+ORDER BY CallDate DESC;
+
+
+-- STEP 19: Check if these accounts have ANY autopay events, and how old they are
+WITH RemovalWithRealTenure AS (
+    SELECT
+        cai.ContactID,
+        cai.[Date] AS CallDate,
+        ba.CustID,
+        ba.ID AS SalesforceAccountID,
+        add_evt.LastAddDate
+    FROM Care_CallAI cai
+    JOIN dbo.IVR ivr ON ivr.ContactID = cai.ContactID
+    JOIN vw_Salesforce_BillingAccount ba ON ba.CustID = ivr.AccountNumber
+    CROSS APPLY (
+        SELECT MAX(sa.Created) AS LastAddDate
+        FROM vw_Salesforce_Autopay sa
+        WHERE sa.AccountID = ba.ID
+          AND sa.Action = 'Add'
+          AND sa.Created <= cai.[Date]
+    ) add_evt
+    WHERE cai.[call.reason] = 'Remove Autopay'
+)
+SELECT TOP 20
+    r.ContactID,
+    r.CallDate,
+    r.CustID,
+    r.SalesforceAccountID,
+    cm.FlowStart,
+    DATEDIFF(DAY, cm.FlowStart, r.CallDate) AS DaysSinceEnrollment,
+    (SELECT COUNT(*) FROM vw_Salesforce_Autopay sa WHERE sa.AccountID = r.SalesforceAccountID) AS TotalAutopayEventsOnRecord
+FROM RemovalWithRealTenure r
+JOIN iSigma_Customer_Master cm ON cm.cust_id = r.CustID
+WHERE r.LastAddDate IS NULL
+ORDER BY r.CallDate DESC;
+
+
+-- STEP 20: Rebucket tenure, falling back to FlowStart when no Add event exists
+-- (autopay set at enrollment isn't logged as a separate Salesforce event)
+WITH RemovalWithRealTenure AS (
+    SELECT
+        cai.ContactID,
+        cai.[Date] AS CallDate,
+        ba.CustID,
+        add_evt.LastAddDate,
+        cm.FlowStart,
+        COALESCE(add_evt.LastAddDate, cm.FlowStart) AS EffectiveAutopayStart
+    FROM Care_CallAI cai
+    JOIN dbo.IVR ivr ON ivr.ContactID = cai.ContactID
+    JOIN vw_Salesforce_BillingAccount ba ON ba.CustID = ivr.AccountNumber
+    JOIN iSigma_Customer_Master cm ON cm.cust_id = ba.CustID
+    CROSS APPLY (
+        SELECT MAX(sa.Created) AS LastAddDate
+        FROM vw_Salesforce_Autopay sa
+        WHERE sa.AccountID = ba.ID
+          AND sa.Action = 'Add'
+          AND sa.Created <= cai.[Date]
+    ) add_evt
+    WHERE cai.[call.reason] = 'Remove Autopay'
+      AND cm.FlowStart IS NOT NULL
+),
+Bucketed AS (
+    SELECT
+        *,
+        DATEDIFF(DAY, EffectiveAutopayStart, CallDate) AS DaysOnAutopayBeforeCall,
+        CASE WHEN LastAddDate IS NULL THEN 1 ELSE 0 END AS UsedFallback
+    FROM RemovalWithRealTenure
+)
+SELECT
+    CASE
+        WHEN DaysOnAutopayBeforeCall <= 30 THEN 'New enrollee (0-30 days)'
+        WHEN DaysOnAutopayBeforeCall <= 90 THEN 'Recent enrollee (31-90 days)'
+        ELSE 'Long-time autopay customer (90+ days)'
+    END AS Category,
+    COUNT(*) AS Calls,
+    CAST(COUNT(*) AS FLOAT) / SUM(COUNT(*)) OVER () AS PctOfCalls,
+    SUM(UsedFallback) AS CallsUsingFlowStartFallback
+FROM Bucketed
+GROUP BY
+    CASE
+        WHEN DaysOnAutopayBeforeCall <= 30 THEN 'New enrollee (0-30 days)'
+        WHEN DaysOnAutopayBeforeCall <= 90 THEN 'Recent enrollee (31-90 days)'
+        ELSE 'Long-time autopay customer (90+ days)'
+    END
+ORDER BY Calls DESC;
+
+
+-- STEP 21: Find candidate "due date" columns for the days-until-next-due-date test
+SELECT TABLE_NAME, COLUMN_NAME, DATA_TYPE
+FROM INFORMATION_SCHEMA.COLUMNS
+WHERE (COLUMN_NAME LIKE '%DueDate%' OR COLUMN_NAME LIKE '%Due_Date%')
+  AND TABLE_NAME IN ('iSigma_Bill_Master', 'JESouth_CollectionAR_DailyDue');
+
+
+-- STEP 22: For each Remove Autopay call, find the days until the NEXT due date
+WITH RemovalCalls AS (
+    SELECT
+        cai.ContactID,
+        cai.[Date] AS CallDate,
+        bm.cust_id
+    FROM Care_CallAI cai
+    JOIN dbo.IVR ivr ON ivr.ContactID = cai.ContactID
+    JOIN iSigma_Bill_Master bm ON bm.cust_id = ivr.AccountNumber
+    WHERE cai.[call.reason] = 'Remove Autopay'
+    GROUP BY cai.ContactID, cai.[Date], bm.cust_id
+)
+SELECT TOP 20
+    rc.ContactID,
+    rc.CallDate,
+    rc.cust_id,
+    next_due.NextDueDate,
+    DATEDIFF(DAY, rc.CallDate, next_due.NextDueDate) AS DaysUntilNextDueDate
+FROM RemovalCalls rc
+CROSS APPLY (
+    SELECT MIN(bm2.Due_Date) AS NextDueDate
+    FROM iSigma_Bill_Master bm2
+    WHERE bm2.cust_id = rc.cust_id
+      AND bm2.Due_Date >= rc.CallDate
+) next_due
+ORDER BY rc.CallDate DESC;
+
+-- STEP 23: Full distribution of days-until-next-due-date across all Remove Autopay calls
+WITH RemovalCalls AS (
+    SELECT
+        cai.ContactID,
+        cai.[Date] AS CallDate,
+        bm.cust_id
+    FROM Care_CallAI cai
+    JOIN dbo.IVR ivr ON ivr.ContactID = cai.ContactID
+    JOIN iSigma_Bill_Master bm ON bm.cust_id = ivr.AccountNumber
+    WHERE cai.[call.reason] = 'Remove Autopay'
+    GROUP BY cai.ContactID, cai.[Date], bm.cust_id
+),
+WithDueDate AS (
+    SELECT
+        rc.ContactID,
+        DATEDIFF(DAY, rc.CallDate, next_due.NextDueDate) AS DaysUntilNextDueDate
+    FROM RemovalCalls rc
+    CROSS APPLY (
+        SELECT MIN(bm2.Due_Date) AS NextDueDate
+        FROM iSigma_Bill_Master bm2
+        WHERE bm2.cust_id = rc.cust_id
+          AND bm2.Due_Date >= rc.CallDate
+    ) next_due
+)
+SELECT
+    CASE
+        WHEN DaysUntilNextDueDate IS NULL THEN 'No upcoming due date found'
+        WHEN DaysUntilNextDueDate <= 3 THEN '0-3 days before due'
+        WHEN DaysUntilNextDueDate <= 7 THEN '4-7 days before due'
+        WHEN DaysUntilNextDueDate <= 14 THEN '8-14 days before due'
+        ELSE '15+ days before due'
+    END AS Bucket,
+    COUNT(*) AS Calls,
+    CAST(COUNT(*) AS FLOAT) / SUM(COUNT(*)) OVER () AS PctOfCalls
+FROM WithDueDate
+GROUP BY
+    CASE
+        WHEN DaysUntilNextDueDate IS NULL THEN 'No upcoming due date found'
+        WHEN DaysUntilNextDueDate <= 3 THEN '0-3 days before due'
+        WHEN DaysUntilNextDueDate <= 7 THEN '4-7 days before due'
+        WHEN DaysUntilNextDueDate <= 14 THEN '8-14 days before due'
+        ELSE '15+ days before due'
+    END
+ORDER BY Calls DESC;
+
+-- STEP 24: Confirm exact deposit-paid column name on iSigma_Customer_Master
+SELECT COLUMN_NAME, DATA_TYPE
+FROM INFORMATION_SCHEMA.COLUMNS
+WHERE TABLE_NAME = 'iSigma_Customer_Master'
+  AND (COLUMN_NAME LIKE '%Deposit%' OR COLUMN_NAME LIKE '%Waiver%');
+
+
+-- STEP 25: Check for concentration of Remove actions by specific agents (potential gaming signal)
+SELECT TOP 20
+    CreatedBy,
+    COUNT(*) AS RemovalsProcessed
+FROM vw_Salesforce_Autopay
+WHERE Action = 'Remove'
+GROUP BY CreatedBy
+ORDER BY RemovalsProcessed DESC;
+
+-- STEP 26: Confirm the suspected system account by checking its Add-side volume too
+SELECT Action, COUNT(*) AS EventCount
+FROM vw_Salesforce_Autopay
+WHERE CreatedBy = '0054T000001dhK1QAI'
+GROUP BY Action;
+
+
+-- STEP 27: Test the deposit-waiver loophole (credit score 600-699, waived deposit, later removed autopay)
+SELECT
+    cm.CreditScore,
+    cm.DepositPaid,
+    cm.DepositRequired,
+    cm.Waiver,
+    COUNT(DISTINCT cai.ContactID) AS RemovalCalls
+FROM Care_CallAI cai
+JOIN dbo.IVR ivr ON ivr.ContactID = cai.ContactID
+JOIN iSigma_Customer_Master cm ON cm.cust_id = ivr.AccountNumber
+WHERE cai.[call.reason] = 'Remove Autopay'
+  AND cm.CreditScore BETWEEN 600 AND 699
+  AND cm.DepositPaid = 0
+GROUP BY cm.CreditScore, cm.DepositPaid, cm.DepositRequired, cm.Waiver
+ORDER BY RemovalCalls DESC;
+
+
+-- STEP 28: Confirm what Waiver actually contains, and check its relationship to DepositRequired/DepositPaid
+SELECT DISTINCT Waiver, DepositRequired, DepositPaid, COUNT(*) AS CustomerCount
+FROM iSigma_Customer_Master
+WHERE CreditScore BETWEEN 600 AND 699
+GROUP BY Waiver, DepositRequired, DepositPaid
+ORDER BY CustomerCount DESC;
+
+
+-- STEP 29: Test the real deposit-waiver loophole using Waiver = 'Autopay'
+SELECT
+    cm.CreditScore,
+    COUNT(DISTINCT cm.cust_id) AS CustomersOnAutopayWaiver,
+    COUNT(DISTINCT cai.ContactID) AS RemovalCalls,
+    CAST(COUNT(DISTINCT cai.ContactID) AS FLOAT) / COUNT(DISTINCT cm.cust_id) AS PctWhoRemoved
+FROM iSigma_Customer_Master cm
+LEFT JOIN dbo.IVR ivr ON ivr.AccountNumber = cm.cust_id
+LEFT JOIN Care_CallAI cai ON cai.ContactID = ivr.ContactID AND cai.[call.reason] = 'Remove Autopay'
+WHERE cm.Waiver = 'Autopay'
+  AND cm.CreditScore BETWEEN 600 AND 699
+GROUP BY cm.CreditScore
+ORDER BY cm.CreditScore;
+
+
+-- Confirm exact SalesChannel value for telesales, in a fresh query window
+SELECT DISTINCT SalesChannel
+FROM iSigma_Customer_Master
+WHERE SalesChannel LIKE '%tele%';
+
+-- Test the telesales clawback theory: removal within 60 days of enrollment, by channel
+SELECT
+    cm.SalesChannel,
+    COUNT(DISTINCT cm.cust_id) AS TotalEnrolled,
+    COUNT(DISTINCT cai.ContactID) AS RemovedWithin60Days,
+    CAST(COUNT(DISTINCT cai.ContactID) AS FLOAT) / COUNT(DISTINCT cm.cust_id) AS PctRemovedWithin60Days
+FROM iSigma_Customer_Master cm
+LEFT JOIN dbo.IVR ivr ON ivr.AccountNumber = cm.cust_id
+LEFT JOIN Care_CallAI cai
+    ON cai.ContactID = ivr.ContactID
+    AND cai.[call.reason] = 'Remove Autopay'
+    AND DATEDIFF(DAY, cm.FlowStart, cai.[Date]) BETWEEN 0 AND 60
+WHERE cm.SalesChannel IN ('Inbound Telesales', 'Telemarketing', 'TELESALES')
+  AND cm.FlowStart IS NOT NULL
+GROUP BY cm.SalesChannel
+ORDER BY PctRemovedWithin60Days DESC;
+
+-- Sanity check: any Remove Autopay calls at all from these channels, regardless of timing
+SELECT
+    cm.SalesChannel,
+    COUNT(DISTINCT cm.cust_id) AS TotalEnrolled,
+    COUNT(DISTINCT cai.ContactID) AS AnyRemovalCallEver
+FROM iSigma_Customer_Master cm
+LEFT JOIN dbo.IVR ivr ON ivr.AccountNumber = cm.cust_id
+LEFT JOIN Care_CallAI cai
+    ON cai.ContactID = ivr.ContactID
+    AND cai.[call.reason] = 'Remove Autopay'
+WHERE cm.SalesChannel IN ('Inbound Telesales', 'Telemarketing', 'TELESALES')
+GROUP BY cm.SalesChannel;
+
+-- Check for concentration of Remove actions by real (non-system) agents
+SELECT TOP 20
+    CreatedBy,
+    COUNT(*) AS RemovalsProcessed
+FROM vw_Salesforce_Autopay
+WHERE Action = 'Remove'
+  AND CreatedBy <> '0054T000001dhK1QAI'
+GROUP BY CreatedBy
+ORDER BY RemovalsProcessed DESC;
 
 task 4 follow up
 
@@ -98,668 +507,9 @@ JOIN iSigma_Customer_Master cm
     AND cm.FlowStart <= pd.[Date]
     AND (cm.FlowEnd IS NULL OR cm.FlowEnd >= pd.[Date])
 WHERE pd.[Date] >= '2022-07-01'
-    AND pd.AR > 0
+  AND pd.AR > 0
 GROUP BY CAST(pd.[Date] AS DATE)
 ORDER BY CallDay;
-
--- STEP 3 (comparison): Original vs. corrected past-due counts
-SELECT
-    CAST(pd.[Date] AS DATE) AS CallDay,
-    COUNT(DISTINCT pd.CustID) AS PastDueCustomerCount_Original,
-    COUNT(DISTINCT CASE 
-        WHEN cm.cust_id IS NOT NULL 
-             AND cm.Market = 'Texas'
-             AND cm.CustomerType = 'Residential'
-             AND cm.FlowStart <= pd.[Date]
-             AND (cm.FlowEnd IS NULL OR cm.FlowEnd >= pd.[Date])
-        THEN pd.CustID 
-    END) AS PastDueCustomerCount_ActiveOnly
-FROM JESouth_CollectionAR_DailyDue pd
-LEFT JOIN iSigma_Customer_Master cm
-    ON cm.cust_id = pd.CustID
-WHERE pd.[Date] >= '2022-07-01'
-    AND pd.[Date] < '2022-08-01'
-    AND pd.AR > 0
-GROUP BY CAST(pd.[Date] AS DATE)
-ORDER BY CallDay;
-
--- STEP 5 (corrected): Texas vs. Alberta IVR split
-SELECT
-    CAST(CallDate AS DATE) AS CallDay,
-    SUM(CASE 
-        WHEN Queue IS NULL 
-             OR (Queue NOT LIKE '%Alberta%' 
-                 AND Queue NOT LIKE '%California%' 
-                 AND Queue NOT LIKE '%NorthCanada%')
-        THEN 1 ELSE 0 END) AS TexasCalls,
-    SUM(CASE 
-        WHEN Queue LIKE '%Alberta%' 
-        THEN 1 ELSE 0 END) AS AlbertaCalls
-FROM dbo.IVR
-WHERE Department = 'Care'
-    AND CallDate >= '2022-07-01'
-GROUP BY CAST(CallDate AS DATE)
-ORDER BY CallDay;
-
-
--- STEP 6 (corrected): Combined transfer count (regular + escalation)
-SELECT
-    CAST(CallDate AS DATE) AS CallDay,
-    SUM(CASE WHEN TransferToQueue IS NOT NULL THEN 1 ELSE 0 END) AS RegularTransfers,
-    SUM(CASE WHEN FinalQueue IS NOT NULL AND FinalQueue <> Queue THEN 1 ELSE 0 END) AS EscalationTransfers,
-    SUM(CASE 
-        WHEN TransferToQueue IS NOT NULL 
-             OR (FinalQueue IS NOT NULL AND FinalQueue <> Queue)
-        THEN 1 ELSE 0 END) AS TotalTransfers_Combined
-FROM dbo.IVR
-WHERE Department = 'Care'
-    AND CallDate >= '2022-07-01'
-GROUP BY CAST(CallDate AS DATE)
-ORDER BY CallDay;
-
-
-SELECT DISTINCT Queue FROM dbo.IVR WHERE Department = 'Care' AND CallDate >= '2022-07-01' ORDER BY Queue;
-
--- Debug: confirm Alberta volume exists and check date range
-SELECT 
-    Queue,
-    COUNT(*) AS CallCount,
-    MIN(CallDate) AS FirstCall,
-    MAX(CallDate) AS LastCall
-FROM dbo.IVR
-WHERE Department = 'Care'
-    AND Queue LIKE '%Alberta%'
-GROUP BY Queue;
-
--- STEP 5 (corrected v2): Texas vs. Alberta IVR split with data-availability flag
-SELECT
-    CAST(CallDate AS DATE) AS CallDay,
-    SUM(CASE 
-        WHEN Queue IS NULL 
-             OR (Queue NOT LIKE '%Alberta%' 
-                 AND Queue NOT LIKE '%California%' 
-                 AND Queue NOT LIKE '%NorthCanada%')
-        THEN 1 ELSE 0 END) AS TexasCalls,
-    SUM(CASE 
-        WHEN Queue LIKE '%Alberta%' 
-        THEN 1 ELSE 0 END) AS AlbertaCalls,
-    CASE 
-        WHEN CAST(CallDate AS DATE) < '2024-03-20' THEN 'Alberta data not yet available'
-        ELSE 'Alberta data available'
-    END AS AlbertaDataAvailability
-FROM dbo.IVR
-WHERE Department = 'Care'
-    AND CallDate >= '2022-07-01'
-GROUP BY CAST(CallDate AS DATE)
-ORDER BY CallDay;
-
-
--- STEP 6: Language field reliability check
-SELECT
-    Language AS StatedLanguage,
-    CASE 
-        WHEN Queue LIKE '%SPA%' OR Queue LIKE '%Spanish%' THEN 'Spanish (by queue)'
-        WHEN Queue LIKE '%ENG%' THEN 'English (by queue)'
-        ELSE 'Unclear (by queue)'
-    END AS QueueBasedLanguage,
-    VerificationStatus,
-    COUNT(*) AS CallCount
-FROM dbo.IVR
-WHERE Department = 'Care'
-    AND CallDate >= '2022-07-01'
-GROUP BY Language, 
-    CASE 
-        WHEN Queue LIKE '%SPA%' OR Queue LIKE '%Spanish%' THEN 'Spanish (by queue)'
-        WHEN Queue LIKE '%ENG%' THEN 'English (by queue)'
-        ELSE 'Unclear (by queue)'
-    END,
-    VerificationStatus
-ORDER BY StatedLanguage, QueueBasedLanguage, VerificationStatus;
-
-
--- STEP 1: Texas residential filter applied to base population
-SELECT
-    cm.cust_id,
-    cm.Market,
-    cm.CustomerType,
-    cm.FlowStart,
-    cm.FlowEnd
-FROM iSigma_Customer_Master cm
-WHERE cm.Market = 'Texas'
-    AND cm.CustomerType = 'Residential'
-    AND cm.FlowStart IS NOT NULL
-    AND (cm.FlowEnd IS NULL OR cm.FlowEnd >= GETDATE());
-
-
--- STEP 1 (count): Total active Texas-residential population
-SELECT COUNT(*) AS TexasResidentialActiveCount
-FROM iSigma_Customer_Master cm
-WHERE cm.Market = 'Texas'
-    AND cm.CustomerType = 'Residential'
-    AND cm.FlowStart IS NOT NULL
-    AND (cm.FlowEnd IS NULL OR cm.FlowEnd >= GETDATE());
-
-
--- STEP 2a: Confirm call-reason/classification column name
-SELECT COLUMN_NAME, DATA_TYPE
-FROM INFORMATION_SCHEMA.COLUMNS
-WHERE TABLE_NAME = 'Care_CallAI'
-    AND (COLUMN_NAME LIKE '%Reason%' OR COLUMN_NAME LIKE '%Classif%' OR COLUMN_NAME LIKE '%Category%');
-
-
--- STEP 2b: Confirm exact value strings for Bill Explanation / Bill Dispute
-SELECT DISTINCT [call.reason], COUNT(*) AS Cnt
-FROM Care_CallAI
-WHERE [call.reason] LIKE '%Bill%'
-GROUP BY [call.reason]
-ORDER BY Cnt DESC;
-
-
--- STEP 2c: Confirm all column names on Care_CallAI
-SELECT COLUMN_NAME, DATA_TYPE
-FROM INFORMATION_SCHEMA.COLUMNS
-WHERE TABLE_NAME = 'Care_CallAI'
-ORDER BY ORDINAL_POSITION;
-
-
--- STEP 2 (corrected v2): Bill Explanation + Bill Dispute combined
-SELECT
-    cai.ContactID,
-    cai.[Date],
-    cai.transcript_analysis_id,
-    [call.reason] AS CallReason
-FROM Care_CallAI cai
-WHERE [call.reason] IN ('Bill Explanation', 'Bill Dispute');
-
-
--- Check if any table links ContactID (GUID) to cust_id
-SELECT TABLE_NAME, COLUMN_NAME
-FROM INFORMATION_SCHEMA.COLUMNS
-WHERE COLUMN_NAME IN ('ContactID', 'cust_id')
-ORDER BY TABLE_NAME;
-
--- Check full columns on both candidate bridge tables
-SELECT TABLE_NAME, COLUMN_NAME, DATA_TYPE
-FROM INFORMATION_SCHEMA.COLUMNS
-WHERE TABLE_NAME IN ('vw_Salesforce_Contact', 'vw_SFPortalCallIn')
-ORDER BY TABLE_NAME, ORDINAL_POSITION;
-
-
--- STEP 2 (final): Bill Explanation + Bill Dispute, bridged to cust_id
-SELECT
-    sfc.CustID,
-    cai.ContactID,
-    cai.[Date],
-    cai.transcript_analysis_id,
-    [call.reason] AS CallReason
-FROM Care_CallAI cai
-JOIN vw_Salesforce_Contact sfc
-    ON cai.ContactID = sfc.ContactID
-WHERE [call.reason] IN ('Bill Explanation', 'Bill Dispute');
-
-
--- Diagnostic: do ContactID formats actually match between the two tables?
-SELECT TOP 5 ContactID FROM Care_CallAI WHERE ContactID IS NOT NULL;
-
-SELECT TOP 5 ContactID FROM vw_Salesforce_Contact WHERE ContactID IS NOT NULL;
-
-
--- Check if vw_Care_CustomerContact bridges the GUID ContactID to cust_id
-SELECT COLUMN_NAME, DATA_TYPE
-FROM INFORMATION_SCHEMA.COLUMNS
-WHERE TABLE_NAME = 'vw_Care_CustomerContact'
-ORDER BY ORDINAL_POSITION;
-
-
--- Sanity check: CustID coverage on vw_Care_CustomerContact
-SELECT 
-    COUNT(*) AS TotalRows,
-    COUNT(CustID) AS RowsWithCustID,
-    COUNT(DISTINCT CustID) AS DistinctCustIDs
-FROM vw_Care_CustomerContact;
-
-
--- STEP 2 (rebuilt): Bill Explanation + Bill Dispute, using vw_Care_CustomerContact directly
-SELECT
-    vcc.CustID,
-    vcc.ContactID,
-    vcc.CallDate,
-    vcc.Market,
-    vcc.CustomerTenure,
-    vcc.CustomerTenureOrder,
-    vcc.AI_CallReason
-FROM vw_Care_CustomerContact vcc
-WHERE vcc.AI_CallReason IN ('Bill Explanation', 'Bill Dispute');
-
-
--- STEP 2 (final v2): Bill Explanation + Bill Dispute, Texas-residential only
-SELECT
-    vcc.CustID,
-    vcc.ContactID,
-    vcc.CallDate,
-    vcc.Market,
-    vcc.CustomerTenure,
-    vcc.CustomerTenureOrder,
-    vcc.AI_CallReason
-FROM vw_Care_CustomerContact vcc
-WHERE vcc.AI_CallReason IN ('Bill Explanation', 'Bill Dispute')
-    AND vcc.Market = 'Texas'
-    AND vcc.CustID IS NOT NULL;
-
-SELECT COUNT(*) AS BillCallCount_TexasResidential
-FROM vw_Care_CustomerContact vcc
-WHERE vcc.AI_CallReason IN ('Bill Explanation', 'Bill Dispute')
-    AND vcc.Market = 'Texas'
-    AND vcc.CustID IS NOT NULL;
-
--- Check for a more granular tenure-in-days/months field
-SELECT COLUMN_NAME, DATA_TYPE
-FROM INFORMATION_SCHEMA.COLUMNS
-WHERE TABLE_NAME = 'vw_Care_CustomerContact'
-    AND (COLUMN_NAME LIKE '%Tenure%' OR COLUMN_NAME LIKE '%FlowStart%' OR COLUMN_NAME LIKE '%Enroll%');
-
-
--- STEP 4: Tenure bucketed as Jonathan wants — <=14 months vs. >14 months
-SELECT
-    vcc.CustID,
-    vcc.ContactID,
-    vcc.CallDate,
-    vcc.FlowStart,
-    DATEDIFF(MONTH, vcc.FlowStart, vcc.CallDate) AS TenureMonths,
-    CASE 
-        WHEN DATEDIFF(MONTH, vcc.FlowStart, vcc.CallDate) <= 14 THEN '<=14 Months'
-        ELSE '>14 Months'
-    END AS TenureBucket,
-    vcc.AI_CallReason
-FROM vw_Care_CustomerContact vcc
-WHERE vcc.AI_CallReason IN ('Bill Explanation', 'Bill Dispute')
-    AND vcc.Market = 'Texas'
-    AND vcc.CustID IS NOT NULL
-    AND vcc.FlowStart IS NOT NULL;
-
-
--- Check FlowStart coverage within the 27,117 population
-SELECT 
-    COUNT(*) AS TotalInPopulation,
-    COUNT(FlowStart) AS RowsWithFlowStart
-FROM vw_Care_CustomerContact vcc
-WHERE vcc.AI_CallReason IN ('Bill Explanation', 'Bill Dispute')
-    AND vcc.Market = 'Texas'
-    AND vcc.CustID IS NOT NULL;
-
-
--- Check columns on both collections tables
-SELECT TABLE_NAME, COLUMN_NAME, DATA_TYPE
-FROM INFORMATION_SCHEMA.COLUMNS
-WHERE TABLE_NAME IN ('Collections_DebtSale', 'Collections_DebtSaleBuyBack')
-ORDER BY TABLE_NAME, ORDINAL_POSITION;
-
-
--- STEP 5: Historical payment-behavior signal (eventual-payer vs. write-off)
-SELECT
-    ds.cust_id,
-    ds.WriteOffAmount,
-    ds.WriteOffDate,
-    ds.SaleDate,
-    CASE 
-        WHEN bb.cust_id IS NOT NULL THEN 'Eventual Payer'
-        ELSE 'Write-Off'
-    END AS PaymentBehaviorSignal
-FROM Collections_DebtSale ds
-LEFT JOIN Collections_DebtSaleBuyBack bb
-    ON ds.cust_id = bb.cust_id;
-
--- Check what reasons drive buybacks — confirm they're payment-related
-SELECT DISTINCT Reason, COUNT(*) AS Cnt
-FROM Collections_DebtSaleBuyBack
-GROUP BY Reason
-ORDER BY Cnt DESC;
-
-
--- Quick tally: how many total customers land in each bucket?
-SELECT PaymentBehaviorSignal, COUNT(*) AS Cnt
-FROM (
-    SELECT ds.cust_id,
-        CASE WHEN bb.cust_id IS NOT NULL THEN 'Eventual Payer' ELSE 'Write-Off' END AS PaymentBehaviorSignal
-    FROM Collections_DebtSale ds
-    LEFT JOIN Collections_DebtSaleBuyBack bb ON ds.cust_id = bb.cust_id
-) t
-GROUP BY PaymentBehaviorSignal;
-
-
--- STEP 5 (flagged finding, not a resolved signal):
--- Collections_DebtSaleBuyBack reasons (Fraud, Deceased, Bankruptcy, Escalation, 
--- Sold in error, Invalid Enrollment, Waiving ETF) do NOT indicate the customer 
--- eventually paid -- they reflect operational/legal reversals of the debt sale.
--- This table cannot answer Jonathan's "eventual-payer vs write-off" question as-is.
--- Open item for final deliverable: is there a different source (e.g. payment 
--- applied post-write-off) that captures true eventual payment?
-
--- STEP 3a: Confirm usage-related columns across billing/usage tables
-SELECT TABLE_NAME, COLUMN_NAME, DATA_TYPE
-FROM INFORMATION_SCHEMA.COLUMNS
-WHERE COLUMN_NAME LIKE '%Usage%'
-ORDER BY TABLE_NAME, ORDINAL_POSITION;
-
-
--- Check what iSigma_Customer_Master.Usage actually represents
-SELECT TOP 10 cust_id, Usage, UsageCredit
-FROM iSigma_Customer_Master
-WHERE Usage IS NOT NULL
-ORDER BY cust_id;
-
-
--- STEP 3 (flagged finding, not resolved):
--- No usage source in this schema updates independently of bill generation.
--- iSigma_Customer_Master.Usage is unpopulated/junk data (all 0.00, invalid cust_id values).
--- All real usage values live on bill/invoice-level tables (iSigma_Bill_Master,
--- iSigma_Bill_Contract_Details, iSigma_Customer_Fin_Invoices) which only populate
--- once a bill has already generated -- the opposite of Jonathan's "pre-bill-generation" ask.
--- Open question for Jonathan: is there a separate utility meter-read/interval-usage 
--- feed (outside iSigma) that would need to be sourced for this trigger to work as specified?
-
-
--- STEP 6a: Confirm DepositPaid field and its distinct values
-SELECT DISTINCT DepositPaid, COUNT(*) AS Cnt
-FROM iSigma_Customer_Master
-GROUP BY DepositPaid
-ORDER BY Cnt DESC;
-
-
--- STEP 6 (corrected): Deposit/waiver flag joined to Task 3 population
-SELECT
-    vcc.CustID,
-    cm.DepositPaid,
-    CASE 
-        WHEN cm.DepositPaid > 0 THEN 'Deposit Paid'
-        WHEN cm.DepositPaid = 0 OR cm.DepositPaid IS NULL THEN 'No Deposit / Waived'
-    END AS DepositFlag
-FROM vw_Care_CustomerContact vcc
-JOIN iSigma_Customer_Master cm
-    ON cm.cust_id = vcc.CustID
-WHERE vcc.AI_CallReason IN ('Bill Explanation', 'Bill Dispute')
-    AND vcc.Market = 'Texas'
-    AND vcc.CustID IS NOT NULL;
-
-
--- STEP 7 (optimized, fixed): Build a lightweight call-date table first
-SELECT 
-    CAST(CustID AS VARCHAR(50)) AS CustID, 
-    CallDate
-INTO #CustomerCallDates
-FROM vw_Care_CustomerContact
-WHERE CustID IN (
-    SELECT DISTINCT vcc.CustID
-    FROM vw_Care_CustomerContact vcc
-    WHERE vcc.AI_CallReason IN ('Bill Explanation', 'Bill Dispute')
-        AND vcc.Market = 'Texas'
-        AND vcc.CustID IS NOT NULL
-)
-AND CustID IS NOT NULL;
-
-
-SELECT
-    vcc.CustID,
-    vcc.ContactID,
-    vcc.CallDate,
-    (SELECT COUNT(*) FROM #CustomerCallDates c2 
-     WHERE c2.CustID = CAST(vcc.CustID AS VARCHAR(50)) AND c2.CallDate < vcc.CallDate 
-        AND c2.CallDate >= DATEADD(DAY, -30, vcc.CallDate)) AS CallsPrior30Days,
-    (SELECT COUNT(*) FROM #CustomerCallDates c2 
-     WHERE c2.CustID = CAST(vcc.CustID AS VARCHAR(50)) AND c2.CallDate < vcc.CallDate 
-        AND c2.CallDate >= DATEADD(DAY, -60, vcc.CallDate)) AS CallsPrior60Days,
-    (SELECT COUNT(*) FROM #CustomerCallDates c2 
-     WHERE c2.CustID = CAST(vcc.CustID AS VARCHAR(50)) AND c2.CallDate < vcc.CallDate 
-        AND c2.CallDate >= DATEADD(DAY, -90, vcc.CallDate)) AS CallsPrior90Days
-FROM vw_Care_CustomerContact vcc
-WHERE vcc.AI_CallReason IN ('Bill Explanation', 'Bill Dispute')
-    AND vcc.Market = 'Texas'
-    AND vcc.CustID IS NOT NULL;
-
-
--- Check the distribution of CallsPrior30Days to pick a sensible threshold
-SELECT CallsPrior30Days, COUNT(*) AS CustomerCount
-FROM (
-    SELECT
-        vcc.CustID,
-        (SELECT COUNT(*) FROM #CustomerCallDates c2 
-         WHERE c2.CustID = CAST(vcc.CustID AS VARCHAR(50)) AND c2.CallDate < vcc.CallDate 
-            AND c2.CallDate >= DATEADD(DAY, -30, vcc.CallDate)) AS CallsPrior30Days
-    FROM vw_Care_CustomerContact vcc
-    WHERE vcc.AI_CallReason IN ('Bill Explanation', 'Bill Dispute')
-        AND vcc.Market = 'Texas'
-        AND vcc.CustID IS NOT NULL
-) t
-GROUP BY CallsPrior30Days
-
-
--- STEP 7 (final): Frequent-contact flag
-SELECT
-    vcc.CustID,
-    vcc.ContactID,
-    vcc.CallDate,
-    (SELECT COUNT(*) FROM #CustomerCallDates c2 
-     WHERE c2.CustID = CAST(vcc.CustID AS VARCHAR(50)) AND c2.CallDate < vcc.CallDate 
-        AND c2.CallDate >= DATEADD(DAY, -30, vcc.CallDate)) AS CallsPrior30Days,
-    CASE 
-        WHEN (SELECT COUNT(*) FROM #CustomerCallDates c2 
-              WHERE c2.CustID = CAST(vcc.CustID AS VARCHAR(50)) AND c2.CallDate < vcc.CallDate 
-                 AND c2.CallDate >= DATEADD(DAY, -30, vcc.CallDate)) >= 2 
-        THEN 'Frequent Contact'
-        ELSE 'Normal Contact'
-    END AS FrequentContactFlag
-FROM vw_Care_CustomerContact vcc
-WHERE vcc.AI_CallReason IN ('Bill Explanation', 'Bill Dispute')
-    AND vcc.Market = 'Texas'
-    AND vcc.CustID IS NOT NULL;
-
-
--- STEP 8a: Combined profile — merge all signals for the flagged population
-SELECT
-    vcc.CustID,
-    cm.CreditScore,
-    cm.DepositPaid,
-    DATEDIFF(MONTH, vcc.FlowStart, vcc.CallDate) AS TenureMonths,
-    CASE WHEN DATEDIFF(MONTH, vcc.FlowStart, vcc.CallDate) <= 14 THEN '<=14 Months' ELSE '>14 Months' END AS TenureBucket,
-    CASE WHEN cm.DepositPaid > 0 THEN 'Deposit Paid' ELSE 'No Deposit' END AS DepositFlag,
-    CASE 
-        WHEN (SELECT COUNT(*) FROM #CustomerCallDates c2 
-              WHERE c2.CustID = CAST(vcc.CustID AS VARCHAR(50)) AND c2.CallDate < vcc.CallDate 
-                 AND c2.CallDate >= DATEADD(DAY, -30, vcc.CallDate)) >= 2 
-        THEN 'Frequent Contact' ELSE 'Normal Contact'
-    END AS FrequentContactFlag
-FROM vw_Care_CustomerContact vcc
-JOIN iSigma_Customer_Master cm ON cm.cust_id = vcc.CustID
-WHERE vcc.AI_CallReason IN ('Bill Explanation', 'Bill Dispute')
-    AND vcc.Market = 'Texas'
-    AND vcc.CustID IS NOT NULL
-    AND vcc.FlowStart IS NOT NULL;
-
--- STEP 8b (fixed): How do the flags overlap among actual callers?
-SELECT
-    CreditBand,
-    DepositFlag,
-    TenureBucket,
-    FrequentContactFlag,
-    COUNT(*) AS CustomerCount
-FROM (
-    SELECT
-        vcc.CustID,
-        CASE WHEN cm.CreditScore <= 500 AND cm.CreditScore > 0 THEN 'Score<=500' ELSE 'Score>500 or junk' END AS CreditBand,
-        CASE WHEN cm.DepositPaid > 0 THEN 'Deposit Paid' ELSE 'No Deposit' END AS DepositFlag,
-        CASE WHEN DATEDIFF(MONTH, vcc.FlowStart, vcc.CallDate) <= 14 THEN '<=14 Months' ELSE '>14 Months' END AS TenureBucket,
-        CASE 
-            WHEN (SELECT COUNT(*) FROM #CustomerCallDates c2 
-                  WHERE c2.CustID = CAST(vcc.CustID AS VARCHAR(50)) AND c2.CallDate < vcc.CallDate 
-                     AND c2.CallDate >= DATEADD(DAY, -30, vcc.CallDate)) >= 2 
-            THEN 'Frequent Contact' ELSE 'Normal Contact'
-        END AS FrequentContactFlag
-    FROM vw_Care_CustomerContact vcc
-    JOIN iSigma_Customer_Master cm ON cm.cust_id = vcc.CustID
-    WHERE vcc.AI_CallReason IN ('Bill Explanation', 'Bill Dispute')
-        AND vcc.Market = 'Texas'
-        AND vcc.CustID IS NOT NULL
-        AND vcc.FlowStart IS NOT NULL
-) t
-GROUP BY CreditBand, DepositFlag, TenureBucket, FrequentContactFlag
-ORDER BY CustomerCount DESC;
-
-
--- STEP 8 (final): Context-aware flag to reduce false positives
-SELECT
-    vcc.CustID,
-    cm.CreditScore,
-    cm.DepositPaid,
-    DATEDIFF(MONTH, vcc.FlowStart, vcc.CallDate) AS TenureMonths,
-    CASE 
-        WHEN cm.CreditScore <= 500 
-             AND cm.CreditScore > 0 
-             AND cm.DepositPaid = 0
-             AND NOT EXISTS (
-                 SELECT 1 FROM #CustomerCallDates c2 
-                 WHERE c2.CustID = CAST(vcc.CustID AS VARCHAR(50)) 
-                    AND c2.CallDate < vcc.CallDate 
-                    AND c2.CallDate >= DATEADD(DAY, -30, vcc.CallDate)
-                 GROUP BY c2.CustID
-                 HAVING COUNT(*) >= 2
-             )
-        THEN 'Flag'
-        ELSE 'No Flag'
-    END AS UsageAlertFlag
-FROM vw_Care_CustomerContact vcc
-JOIN iSigma_Customer_Master cm ON cm.cust_id = vcc.CustID
-WHERE vcc.AI_CallReason IN ('Bill Explanation', 'Bill Dispute')
-    AND vcc.Market = 'Texas'
-    AND vcc.CustID IS NOT NULL
-    AND vcc.FlowStart IS NOT NULL;
-
--- Final count: how many customers get flagged by the Step 8 rule?
-SELECT 
-    UsageAlertFlag,
-    COUNT(*) AS CustomerCount
-FROM (
-    SELECT
-        vcc.CustID,
-        CASE 
-            WHEN cm.CreditScore <= 500 
-                 AND cm.CreditScore > 0 
-                 AND cm.DepositPaid = 0
-                 AND NOT EXISTS (
-                     SELECT 1 FROM #CustomerCallDates c2 
-                     WHERE c2.CustID = CAST(vcc.CustID AS VARCHAR(50)) 
-                        AND c2.CallDate < vcc.CallDate 
-                        AND c2.CallDate >= DATEADD(DAY, -30, vcc.CallDate)
-                     GROUP BY c2.CustID
-                     HAVING COUNT(*) >= 2
-                 )
-            THEN 'Flag'
-            ELSE 'No Flag'
-        END AS UsageAlertFlag
-    FROM vw_Care_CustomerContact vcc
-    JOIN iSigma_Customer_Master cm ON cm.cust_id = vcc.CustID
-    WHERE vcc.AI_CallReason IN ('Bill Explanation', 'Bill Dispute')
-        AND vcc.Market = 'Texas'
-        AND vcc.CustID IS NOT NULL
-        AND vcc.FlowStart IS NOT NULL
-) t
-GROUP BY UsageAlertFlag;
-
-
--- Confirm date-related columns on iSigma_Bill_Master
-SELECT COLUMN_NAME, DATA_TYPE
-FROM INFORMATION_SCHEMA.COLUMNS
-WHERE TABLE_NAME = 'iSigma_Bill_Master'
-    AND (COLUMN_NAME LIKE '%Date%' OR COLUMN_NAME LIKE '%Bill%')
-ORDER BY ORDINAL_POSITION;
-
-
--- STEP 10: 12-month historical usage baseline per customer
-SELECT
-    bm.cust_id,
-    AVG(bm.Usage) AS AvgUsage12Mo,
-    COUNT(*) AS BillsIncluded,
-    MIN(bm.Bill_Date) AS EarliestBillInWindow,
-    MAX(bm.Bill_Date) AS LatestBillInWindow
-FROM iSigma_Bill_Master bm
-WHERE bm.cust_id IN (
-    SELECT DISTINCT vcc.CustID
-    FROM vw_Care_CustomerContact vcc
-    WHERE vcc.AI_CallReason IN ('Bill Explanation', 'Bill Dispute')
-        AND vcc.Market = 'Texas'
-        AND vcc.CustID IS NOT NULL
-)
-AND bm.Bill_Date >= DATEADD(MONTH, -12, GETDATE())
-GROUP BY bm.cust_id;
-
--- TASK 3 (FINAL): Consolidated usage-alert targeting model — Texas residential, Bill Explanation/Dispute
-SELECT
-    vcc.CustID,
-    vcc.ContactID,
-    vcc.CallDate,
-    cm.CreditScore,
-    cm.DepositPaid,
-    DATEDIFF(MONTH, vcc.FlowStart, vcc.CallDate) AS TenureMonths,
-    CASE 
-        WHEN DATEDIFF(MONTH, vcc.FlowStart, vcc.CallDate) <= 14 THEN '<=14 Months' 
-        ELSE '>14 Months' 
-    END AS TenureBucket,
-    CASE 
-        WHEN cm.DepositPaid > 0 THEN 'Deposit Paid' 
-        ELSE 'No Deposit' 
-    END AS DepositFlag,
-    CASE 
-        WHEN EXISTS (
-            SELECT 1 FROM #CustomerCallDates c2 
-            WHERE c2.CustID = CAST(vcc.CustID AS VARCHAR(50)) 
-               AND c2.CallDate < vcc.CallDate 
-               AND c2.CallDate >= DATEADD(DAY, -30, vcc.CallDate)
-            GROUP BY c2.CustID
-            HAVING COUNT(*) >= 2
-        )
-        THEN 'Frequent Contact' 
-        ELSE 'Normal Contact'
-    END AS FrequentContactFlag,
-    usage12.AvgUsage12Mo,
-    usage12.BillsIncluded,
-    CASE WHEN usage12.BillsIncluded < 10 THEN 'Partial Baseline' ELSE 'Full 12-Month Baseline' END AS BaselineQuality,
-    CASE 
-        WHEN cm.CreditScore <= 500 
-             AND cm.CreditScore > 0 
-             AND cm.DepositPaid = 0
-             AND NOT EXISTS (
-                 SELECT 1 FROM #CustomerCallDates c2 
-                 WHERE c2.CustID = CAST(vcc.CustID AS VARCHAR(50)) 
-                    AND c2.CallDate < vcc.CallDate 
-                    AND c2.CallDate >= DATEADD(DAY, -30, vcc.CallDate)
-                 GROUP BY c2.CustID
-                 HAVING COUNT(*) >= 2
-             )
-        THEN 'Flag'
-        ELSE 'No Flag'
-    END AS UsageAlertFlag
-FROM vw_Care_CustomerContact vcc
-JOIN iSigma_Customer_Master cm ON cm.cust_id = vcc.CustID
-LEFT JOIN (
-    SELECT
-        bm.cust_id,
-        AVG(bm.Usage) AS AvgUsage12Mo,
-        COUNT(*) AS BillsIncluded
-    FROM iSigma_Bill_Master bm
-    WHERE bm.Bill_Date >= DATEADD(MONTH, -12, GETDATE())
-    GROUP BY bm.cust_id
-) usage12 ON usage12.cust_id = vcc.CustID
-WHERE vcc.AI_CallReason IN ('Bill Explanation', 'Bill Dispute')
-    AND vcc.Market = 'Texas'
-    AND vcc.CustID IS NOT NULL
-    AND vcc.FlowStart IS NOT NULL;
-
-SELECT COUNT(*) AS FinalPopulationCount
-FROM vw_Care_CustomerContact vcc
-JOIN iSigma_Customer_Master cm ON cm.cust_id = vcc.CustID
-WHERE vcc.AI_CallReason IN ('Bill Explanation', 'Bill Dispute')
-    AND vcc.Market = 'Texas'
-    AND vcc.CustID IS NOT NULL
-    AND vcc.FlowStart IS NOT NULL;
 
 
 -- STEP 1: Confirm autopay-related classification fields on Care_CallAI / vw_Care_CustomerContact
@@ -769,86 +519,23 @@ WHERE TABLE_NAME IN ('Care_CallAI', 'vw_Care_CustomerContact')
     AND (COLUMN_NAME LIKE '%otc%' OR COLUMN_NAME LIKE '%pay%' OR COLUMN_NAME LIKE '%reason%')
 ORDER BY TABLE_NAME, ORDINAL_POSITION;
 
--- Check distinct values in OTC and related fields — do these capture autopay-removal context?
-SELECT DISTINCT OTC, OTCResolved, COUNT(*) AS Cnt
-FROM vw_Care_CustomerContact
-WHERE OTC IS NOT NULL
-GROUP BY OTC, OTCResolved
-ORDER BY Cnt DESC;
 
--- Check if OTC field has any data at all on this view
-SELECT 
-    COUNT(*) AS TotalRows,
-    COUNT(OTC) AS RowsWithOTC,
-    COUNT(DISTINCT OTC) AS DistinctOTCValues
-FROM vw_Care_CustomerContact;
+Hi Jonathan,
 
-SELECT DB_NAME() AS CurrentDatabase;
+Flagging something that's come up over the last two days — looks like a broader issue, not a one-off.
 
-SELECT COUNT(*) AS TotalRows
-FROM vw_Care_CustomerContact;
+While starting Task 5 follow-ups yesterday, I found vw_Care_CustomerContact returning 0 rows on a completely unfiltered SELECT COUNT(*) — this is the same view all of Task 3's validated work is built on. Today, working on the portal-vs-agent channel split, I found vw_Salesforce_User showing the exact same pattern: 0 rows on an unfiltered count.
 
+What I've confirmed:
+- vw_Care_CustomerContact: 0 rows
+- vw_Salesforce_User: 0 rows
+- The related source/underlying tables are fine: Care_CallAI has 254,786 rows, vw_Salesforce_Autopay has 681,174 rows (225,879 are removals)
+- dbo.IVR is unaffected (47.7M rows, normal)
+- vw_Care_CustomerContact's last modify_date shows 2026-05-30, so it wasn't recently edited
 
--- Check 1: Does the view still exist, and when was it last modified?
-SELECT name, create_date, modify_date
-FROM sys.views
-WHERE name = 'vw_Care_CustomerContact';
+Since two separate views are both returning empty results while their related source tables are healthy, this looks like it could be a broader refresh/pipeline issue affecting a group of views, rather than something wrong with either view's individual definition. This is now blocking both Task 3 follow-up work and the Task 5 channel-split analysis.
 
--- Check 2: Confirm another known table still has data (isolate the issue)
-SELECT COUNT(*) AS IVRRowCount FROM dbo.IVR;
+Happy to help narrow it down further if useful, but figured this is probably faster for you or the pipeline team to check directly.
 
--- Check if the underlying Care_CallAI table (which this view likely wraps) still has data
-SELECT COUNT(*) AS CareCallAICount FROM Care_CallAI;
-
--- Find the actual Salesforce autopay event log and user tables
-SELECT TABLE_NAME, COLUMN_NAME, DATA_TYPE
-FROM INFORMATION_SCHEMA.COLUMNS
-WHERE TABLE_NAME LIKE '%Autopay%' OR TABLE_NAME LIKE '%AutoPay%'
-   OR (TABLE_NAME LIKE '%Salesforce%' AND TABLE_NAME LIKE '%User%')
-ORDER BY TABLE_NAME, ORDINAL_POSITION;
-
-
--- STEP 4 (corrected): Portal-vs-agent channel split for autopay removals
-SELECT
-    u.Username,
-    u.EmployeeNumber,
-    CASE 
-        WHEN u.EmployeeNumber IS NOT NULL THEN 'Agent'
-        WHEN u.Username LIKE '%service%' OR u.Username LIKE '%system%' THEN 'IT Service Account'
-        ELSE 'Likely Portal (Customer)'
-    END AS RemovalChannel,
-    COUNT(*) AS RemovalCount
-FROM vw_Salesforce_Autopay a
-JOIN vw_Salesforce_User u ON u.ID = a.CreatedBy
-WHERE a.Remove = 1
-GROUP BY u.Username, u.EmployeeNumber,
-    CASE 
-        WHEN u.EmployeeNumber IS NOT NULL THEN 'Agent'
-        WHEN u.Username LIKE '%service%' OR u.Username LIKE '%system%' THEN 'IT Service Account'
-        ELSE 'Likely Portal (Customer)'
-    END
-ORDER BY RemovalCount DESC;
-
--- Isolate the issue: check each part separately
-SELECT COUNT(*) AS TotalAutopayRows FROM vw_Salesforce_Autopay;
-SELECT COUNT(*) AS RemovalRows FROM vw_Salesforce_Autopay WHERE Remove = 1;
-SELECT TOP 5 CreatedBy FROM vw_Salesforce_Autopay WHERE CreatedBy IS NOT NULL;
-SELECT TOP 5 ID FROM vw_Salesforce_User WHERE ID IS NOT NULL;
-
--- Check which vw_Salesforce_User columns actually contain Salesforce-ID-formatted values
-SELECT TOP 5 ID, EmployeeNumber, AmazonConnectU FROM vw_Salesforce_User;
-
-
-SELECT COLUMN_NAME, DATA_TYPE
-FROM INFORMATION_SCHEMA.COLUMNS
-WHERE TABLE_NAME = 'vw_Salesforce_User'
-ORDER BY ORDINAL_POSITION;
-
-
--- Check if ID is actually populated on vw_Salesforce_User
-SELECT 
-    COUNT(*) AS TotalUsers,
-    COUNT(ID) AS UsersWithID,
-    COUNT(DISTINCT ID) AS DistinctIDs
-FROM vw_Salesforce_User;
-
+Thanks,
+Momo
