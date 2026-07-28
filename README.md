@@ -302,3 +302,116 @@ JOIN BlendedRates br ON br.DayNum = DATEPART(WEEKDAY, fa.CallDay)
 JOIN SeasonalIndex si ON si.CallMonth = MONTH(fa.CallDay)
 ORDER BY fa.CallDay;
 
+-- ============================================================================
+-- REWORKED BLEND: Rolling 6-Month Recency Window
+-- Replaces the fixed 40/60 blend. Recent data now drives the actual rate;
+-- full history is used only to confirm the day-of-week shape still holds.
+-- Recompute this periodically (e.g., monthly) as phone system changes roll out.
+-- ============================================================================
+
+WITH BaselineCount AS (
+    SELECT COUNT(*) AS BaselineCount
+    FROM iSigma_Customer_Master
+    WHERE Market = 'Texas' AND CustomerType = 'Residential'
+        AND FlowStart < '2022-07-01'
+        AND (FlowEnd IS NULL OR FlowEnd >= '2022-07-01')
+),
+
+Calendar AS (
+    SELECT 
+        CAST([Date] AS DATE) AS CallDay, 
+        CASE WHEN USHoliday IS NOT NULL THEN 1 ELSE 0 END AS IsHoliday
+    FROM vw_calendarWH 
+    WHERE [Date] >= '2022-07-01'
+),
+
+ActiveDelta AS (
+    SELECT CAST(FlowStart AS DATE) AS EventDate, 1 AS Delta
+    FROM iSigma_Customer_Master
+    WHERE Market = 'Texas' AND CustomerType = 'Residential' 
+        AND FlowStart >= '2022-07-01'
+    UNION ALL
+    SELECT CAST(DATEADD(DAY, 1, FlowEnd) AS DATE) AS EventDate, -1 AS Delta
+    FROM iSigma_Customer_Master
+    WHERE Market = 'Texas' AND CustomerType = 'Residential' 
+        AND FlowEnd >= '2022-07-01'
+),
+
+DailyDelta AS (
+    SELECT EventDate, SUM(Delta) AS NetChange 
+    FROM ActiveDelta 
+    GROUP BY EventDate
+),
+
+DailyActive AS (
+    SELECT
+        cal.CallDay,
+        cal.IsHoliday,
+        bc.BaselineCount + ISNULL((
+            SELECT SUM(dd.NetChange) 
+            FROM DailyDelta dd 
+            WHERE dd.EventDate <= cal.CallDay
+        ), 0) AS ActiveCustomerCount
+    FROM Calendar cal
+    CROSS JOIN BaselineCount bc
+),
+
+FilteredCalls AS (
+    SELECT
+        CAST(CallDate AS DATE) AS CallDay,
+        COUNT(*) AS AgentHandledCalls
+    FROM dbo.IVR
+    WHERE Department = 'Care'
+        AND CallType IN ('Inbound', 'Transfer')
+        AND AgentTalkTime > 0
+        AND (Queue IS NULL OR (Queue NOT LIKE '%Alberta%' AND Queue NOT LIKE '%California%' AND Queue NOT LIKE '%NorthCanada%'))
+        AND CallDate >= '2022-07-01'
+    GROUP BY CAST(CallDate AS DATE)
+),
+
+DailyRates AS (
+    SELECT
+        da.CallDay,
+        DATEPART(WEEKDAY, da.CallDay) AS DayNum,
+        DATENAME(WEEKDAY, da.CallDay) AS DayOfWeek,
+        CAST(ISNULL(fc.AgentHandledCalls, 0) AS FLOAT) / NULLIF(da.ActiveCustomerCount, 0) * 1000 AS RatePer1000
+    FROM DailyActive da
+    LEFT JOIN FilteredCalls fc ON fc.CallDay = da.CallDay
+    WHERE da.IsHoliday = 0
+),
+
+-- STEP 1: Rolling 6-month (180-day) rate -- this is the new forecast basis
+RecentRate AS (
+    SELECT
+        DayNum,
+        DayOfWeek,
+        COUNT(*) AS DaysObserved,
+        AVG(RatePer1000) AS RecentRatePer1000
+    FROM DailyRates
+    WHERE CallDay >= DATEADD(DAY, -180, CAST(GETDATE() AS DATE))
+    GROUP BY DayNum, DayOfWeek
+),
+
+-- STEP 2: Full 4-year history -- used only to confirm the shape still holds
+FullHistoryRate AS (
+    SELECT
+        DayNum,
+        DayOfWeek,
+        COUNT(*) AS DaysObserved,
+        AVG(RatePer1000) AS FullHistoryRatePer1000
+    FROM DailyRates
+    GROUP BY DayNum, DayOfWeek
+)
+
+-- STEP 3: Compare shape (rank order) between recent window and full history
+SELECT
+    r.DayNum,
+    r.DayOfWeek,
+    r.DaysObserved AS RecentDaysObserved,
+    ROUND(r.RecentRatePer1000, 3) AS RecentRatePer1000,
+    RANK() OVER (ORDER BY r.RecentRatePer1000 DESC) AS RecentRank,
+    ROUND(f.FullHistoryRatePer1000, 3) AS FullHistoryRatePer1000,
+    RANK() OVER (ORDER BY f.FullHistoryRatePer1000 DESC) AS FullHistoryRank
+FROM RecentRate r
+JOIN FullHistoryRate f ON f.DayNum = r.DayNum
+ORDER BY r.DayNum;
