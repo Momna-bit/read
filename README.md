@@ -418,3 +418,72 @@ FROM ForecastActive fa
 JOIN RecentRates rr ON rr.DayNum = DATEPART(WEEKDAY, fa.CallDay)
 JOIN SeasonalIndex si ON si.CallMonth = MONTH(fa.CallDay)
 ORDER BY fa.CallDay;
+
+-- ============================================================================
+-- COHORT MODEL SCOPING: Feasibility Check
+-- Cross-tabs bill size x credit quality to see if each cohort cell has
+-- enough volume to support a statistically solid per-cohort rate
+-- ============================================================================
+
+WITH LatestBill AS (
+    -- Most recent bill per active Texas Residential customer
+    SELECT
+        bm.cust_id,
+        bm.NetCharge,
+        ROW_NUMBER() OVER (PARTITION BY bm.cust_id ORDER BY bm.LastPaidDateiSigma DESC) AS rn
+    FROM iSigma_Bill_Master bm
+    JOIN iSigma_Customer_Master cm 
+        ON cm.cust_id = bm.cust_id
+        AND cm.Market = 'Texas' 
+        AND cm.CustomerType = 'Residential'
+        AND cm.FlowEnd IS NULL  -- currently active
+),
+
+CustomerCohort AS (
+    -- STEP 1: Assign each customer to a bill-size bucket and credit-quality bucket
+    SELECT
+        lb.cust_id,
+        cm.CreditScore,
+        lb.NetCharge,
+        CASE 
+            WHEN lb.NetCharge < 100 THEN '< $100'
+            WHEN lb.NetCharge < 200 THEN '$100-$200'
+            WHEN lb.NetCharge < 300 THEN '$200-$300'
+            WHEN lb.NetCharge < 400 THEN '$300-$400'
+            ELSE '$400+'
+        END AS BillBucket,
+        CASE 
+            WHEN cm.CreditScore = 0 THEN 'Unknown/Junk'
+            WHEN cm.CreditScore <= 500 THEN 'Low (<=500)'
+            WHEN cm.CreditScore <= 700 THEN 'Medium (501-700)'
+            ELSE 'High (700+)'
+        END AS CreditBucket
+    FROM LatestBill lb
+    JOIN iSigma_Customer_Master cm ON cm.cust_id = lb.cust_id
+    WHERE lb.rn = 1
+),
+
+CallVolume AS (
+    -- Agent-handled calls per customer, last 180 days (same filter as the main model)
+    SELECT
+        AccountNumber AS cust_id,
+        COUNT(*) AS CallCount
+    FROM dbo.IVR
+    WHERE Department = 'Care'
+        AND CallType IN ('Inbound', 'Transfer')
+        AND AgentTalkTime > 0
+        AND CallDate >= DATEADD(DAY, -180, CAST(GETDATE() AS DATE))
+    GROUP BY AccountNumber
+)
+
+-- STEP 2: Cross-tab -- customer count and call count per cohort cell
+SELECT
+    cc.BillBucket,
+    cc.CreditBucket,
+    COUNT(DISTINCT cc.cust_id) AS CustomerCount,
+    SUM(ISNULL(cv.CallCount, 0)) AS TotalCalls,
+    ROUND(AVG(CAST(ISNULL(cv.CallCount, 0) AS FLOAT)), 3) AS AvgCallsPerCustomer
+FROM CustomerCohort cc
+LEFT JOIN CallVolume cv ON cv.cust_id = cc.cust_id
+GROUP BY cc.BillBucket, cc.CreditBucket
+ORDER BY cc.BillBucket, cc.CreditBucket;
