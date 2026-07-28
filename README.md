@@ -154,153 +154,7 @@ SELECT MAX([Date]) AS LatestCalendarDate
 FROM vw_calendarWH;
 
 
--- ============================================================================
--- COMBINED FORECAST: Day-of-Week Blended Rate x Seasonal Index
--- Fixed: builds its own 90-day future date spine, since vw_calendarWH
--- only extends through today and has no future rows
--- ============================================================================
 
-WITH BaselineCount AS (
-    SELECT COUNT(*) AS BaselineCount
-    FROM iSigma_Customer_Master
-    WHERE Market = 'Texas' AND CustomerType = 'Residential'
-        AND FlowStart < '2022-07-01'
-        AND (FlowEnd IS NULL OR FlowEnd >= '2022-07-01')
-),
-
-Calendar AS (
-    -- Historical calendar, used only to train the seasonal index
-    SELECT 
-        CAST([Date] AS DATE) AS CallDay, 
-        CASE WHEN USHoliday IS NOT NULL THEN 1 ELSE 0 END AS IsHoliday
-    FROM vw_calendarWH 
-    WHERE [Date] >= '2022-07-01'
-),
-
-ActiveDelta AS (
-    SELECT CAST(FlowStart AS DATE) AS EventDate, 1 AS Delta
-    FROM iSigma_Customer_Master
-    WHERE Market = 'Texas' AND CustomerType = 'Residential' 
-        AND FlowStart >= '2022-07-01'
-    UNION ALL
-    SELECT CAST(DATEADD(DAY, 1, FlowEnd) AS DATE) AS EventDate, -1 AS Delta
-    FROM iSigma_Customer_Master
-    WHERE Market = 'Texas' AND CustomerType = 'Residential' 
-        AND FlowEnd >= '2022-07-01'
-),
-
-DailyDelta AS (
-    SELECT EventDate, SUM(Delta) AS NetChange 
-    FROM ActiveDelta 
-    GROUP BY EventDate
-),
-
-HistoricalActive AS (
-    -- Used only to train the seasonal index (unchanged from before)
-    SELECT
-        cal.CallDay,
-        cal.IsHoliday,
-        bc.BaselineCount + ISNULL((
-            SELECT SUM(dd.NetChange) 
-            FROM DailyDelta dd 
-            WHERE dd.EventDate <= cal.CallDay
-        ), 0) AS ActiveCustomerCount
-    FROM Calendar cal
-    CROSS JOIN BaselineCount bc
-),
-
-FilteredCalls AS (
-    SELECT
-        CAST(CallDate AS DATE) AS CallDay,
-        COUNT(*) AS AgentHandledCalls
-    FROM dbo.IVR
-    WHERE Department = 'Care'
-        AND CallType IN ('Inbound', 'Transfer')
-        AND AgentTalkTime > 0
-        AND (Queue IS NULL OR (Queue NOT LIKE '%Alberta%' AND Queue NOT LIKE '%California%' AND Queue NOT LIKE '%NorthCanada%'))
-        AND CallDate >= '2022-07-01'
-    GROUP BY CAST(CallDate AS DATE)
-),
-
-DailyRates AS (
-    SELECT
-        ha.CallDay,
-        YEAR(ha.CallDay) AS CallYear,
-        MONTH(ha.CallDay) AS CallMonth,
-        CAST(ISNULL(fc.AgentHandledCalls, 0) AS FLOAT) / NULLIF(ha.ActiveCustomerCount, 0) * 1000 AS RatePer1000
-    FROM HistoricalActive ha
-    LEFT JOIN FilteredCalls fc ON fc.CallDay = ha.CallDay
-    WHERE ha.IsHoliday = 0
-),
-
-YearlyAverage AS (
-    SELECT CallYear, AVG(RatePer1000) AS YearAvgRate
-    FROM DailyRates
-    GROUP BY CallYear
-),
-
-NormalizedDaily AS (
-    SELECT
-        dr.CallMonth,
-        dr.RatePer1000 / NULLIF(ya.YearAvgRate, 0) AS NormalizedRatio
-    FROM DailyRates dr
-    JOIN YearlyAverage ya ON ya.CallYear = dr.CallYear
-),
-
-SeasonalIndex AS (
-    SELECT CallMonth, AVG(NormalizedRatio) AS SeasonalIndex
-    FROM NormalizedDaily
-    GROUP BY CallMonth
-),
-
-BlendedRates AS (
-    SELECT * FROM (VALUES
-        (1, 0.000), (2, 7.814), (3, 6.513), (4, 5.872),
-        (5, 5.188), (6, 5.397), (7, 2.162)
-    ) AS t(DayNum, BlendedRatePer1000)
-),
-
--- STEP: Self-contained 90-day future date spine (no recursion, Fabric-safe)
-Digits AS (
-    SELECT n FROM (VALUES (0),(1),(2),(3),(4),(5),(6),(7),(8),(9)) AS d(n)
-),
-Numbers AS (
-    SELECT (d1.n + d2.n * 10) AS OffsetDay
-    FROM Digits d1 CROSS JOIN Digits d2
-),
-ForecastCalendar AS (
-    SELECT DATEADD(DAY, OffsetDay, CAST(GETDATE() AS DATE)) AS CallDay
-    FROM Numbers
-    WHERE OffsetDay < 90
-),
-
--- Project active customer count forward the same way, independent of vw_calendarWH
-ForecastActive AS (
-    SELECT
-        fc2.CallDay,
-        bc.BaselineCount + ISNULL((
-            SELECT SUM(dd.NetChange) 
-            FROM DailyDelta dd 
-            WHERE dd.EventDate <= fc2.CallDay
-        ), 0) AS ActiveCustomerCount
-    FROM ForecastCalendar fc2
-    CROSS JOIN BaselineCount bc
-)
-
--- STEP: Combined 90-day forward projection
-SELECT
-    fa.CallDay,
-    DATENAME(WEEKDAY, fa.CallDay) AS DayOfWeek,
-    DATENAME(MONTH, fa.CallDay) AS MonthName,
-    fa.ActiveCustomerCount,
-    br.BlendedRatePer1000,
-    ROUND(si.SeasonalIndex, 3) AS SeasonalIndex,
-    ROUND(br.BlendedRatePer1000 * si.SeasonalIndex, 3) AS AdjustedRatePer1000,
-    ROUND((br.BlendedRatePer1000 * si.SeasonalIndex / 1000.0) * fa.ActiveCustomerCount, 0) AS ForecastedCalls
-FROM ForecastActive fa
-JOIN BlendedRates br ON br.DayNum = DATEPART(WEEKDAY, fa.CallDay)
-JOIN SeasonalIndex si ON si.CallMonth = MONTH(fa.CallDay)
-ORDER BY fa.CallDay;
 
 -- ============================================================================
 -- REWORKED BLEND: Rolling 6-Month Recency Window
@@ -415,3 +269,152 @@ SELECT
 FROM RecentRate r
 JOIN FullHistoryRate f ON f.DayNum = r.DayNum
 ORDER BY r.DayNum;
+
+
+-- ============================================================================
+-- COMBINED FORECAST: Recent Day-of-Week Rate (180-day) x Seasonal Index
+-- Replaces the fixed 40/60 blend with the rolling recent-window rate
+-- ============================================================================
+
+WITH BaselineCount AS (
+    SELECT COUNT(*) AS BaselineCount
+    FROM iSigma_Customer_Master
+    WHERE Market = 'Texas' AND CustomerType = 'Residential'
+        AND FlowStart < '2022-07-01'
+        AND (FlowEnd IS NULL OR FlowEnd >= '2022-07-01')
+),
+
+Calendar AS (
+    SELECT 
+        CAST([Date] AS DATE) AS CallDay, 
+        CASE WHEN USHoliday IS NOT NULL THEN 1 ELSE 0 END AS IsHoliday
+    FROM vw_calendarWH 
+    WHERE [Date] >= '2022-07-01'
+),
+
+ActiveDelta AS (
+    SELECT CAST(FlowStart AS DATE) AS EventDate, 1 AS Delta
+    FROM iSigma_Customer_Master
+    WHERE Market = 'Texas' AND CustomerType = 'Residential' 
+        AND FlowStart >= '2022-07-01'
+    UNION ALL
+    SELECT CAST(DATEADD(DAY, 1, FlowEnd) AS DATE) AS EventDate, -1 AS Delta
+    FROM iSigma_Customer_Master
+    WHERE Market = 'Texas' AND CustomerType = 'Residential' 
+        AND FlowEnd >= '2022-07-01'
+),
+
+DailyDelta AS (
+    SELECT EventDate, SUM(Delta) AS NetChange 
+    FROM ActiveDelta 
+    GROUP BY EventDate
+),
+
+HistoricalActive AS (
+    SELECT
+        cal.CallDay,
+        cal.IsHoliday,
+        bc.BaselineCount + ISNULL((
+            SELECT SUM(dd.NetChange) 
+            FROM DailyDelta dd 
+            WHERE dd.EventDate <= cal.CallDay
+        ), 0) AS ActiveCustomerCount
+    FROM Calendar cal
+    CROSS JOIN BaselineCount bc
+),
+
+FilteredCalls AS (
+    SELECT
+        CAST(CallDate AS DATE) AS CallDay,
+        COUNT(*) AS AgentHandledCalls
+    FROM dbo.IVR
+    WHERE Department = 'Care'
+        AND CallType IN ('Inbound', 'Transfer')
+        AND AgentTalkTime > 0
+        AND (Queue IS NULL OR (Queue NOT LIKE '%Alberta%' AND Queue NOT LIKE '%California%' AND Queue NOT LIKE '%NorthCanada%'))
+        AND CallDate >= '2022-07-01'
+    GROUP BY CAST(CallDate AS DATE)
+),
+
+DailyRates AS (
+    SELECT
+        ha.CallDay,
+        YEAR(ha.CallDay) AS CallYear,
+        MONTH(ha.CallDay) AS CallMonth,
+        CAST(ISNULL(fc.AgentHandledCalls, 0) AS FLOAT) / NULLIF(ha.ActiveCustomerCount, 0) * 1000 AS RatePer1000
+    FROM HistoricalActive ha
+    LEFT JOIN FilteredCalls fc ON fc.CallDay = ha.CallDay
+    WHERE ha.IsHoliday = 0
+),
+
+YearlyAverage AS (
+    SELECT CallYear, AVG(RatePer1000) AS YearAvgRate
+    FROM DailyRates
+    GROUP BY CallYear
+),
+
+NormalizedDaily AS (
+    SELECT
+        dr.CallMonth,
+        dr.RatePer1000 / NULLIF(ya.YearAvgRate, 0) AS NormalizedRatio
+    FROM DailyRates dr
+    JOIN YearlyAverage ya ON ya.CallYear = dr.CallYear
+),
+
+SeasonalIndex AS (
+    SELECT CallMonth, AVG(NormalizedRatio) AS SeasonalIndex
+    FROM NormalizedDaily
+    GROUP BY CallMonth
+),
+
+-- Replaces the old fixed BlendedRates -- now the 180-day recent rate
+RecentRates AS (
+    SELECT * FROM (VALUES
+        (1, 0.000),
+        (2, 6.703),
+        (3, 5.254),
+        (4, 4.826),
+        (5, 4.279),
+        (6, 4.668),
+        (7, 1.875)
+    ) AS t(DayNum, RecentRatePer1000)
+),
+
+Digits AS (
+    SELECT n FROM (VALUES (0),(1),(2),(3),(4),(5),(6),(7),(8),(9)) AS d(n)
+),
+Numbers AS (
+    SELECT (d1.n + d2.n * 10) AS OffsetDay
+    FROM Digits d1 CROSS JOIN Digits d2
+),
+ForecastCalendar AS (
+    SELECT DATEADD(DAY, OffsetDay, CAST(GETDATE() AS DATE)) AS CallDay
+    FROM Numbers
+    WHERE OffsetDay < 90
+),
+
+ForecastActive AS (
+    SELECT
+        fc2.CallDay,
+        bc.BaselineCount + ISNULL((
+            SELECT SUM(dd.NetChange) 
+            FROM DailyDelta dd 
+            WHERE dd.EventDate <= fc2.CallDay
+        ), 0) AS ActiveCustomerCount
+    FROM ForecastCalendar fc2
+    CROSS JOIN BaselineCount bc
+)
+
+SELECT
+    fa.CallDay,
+    DATENAME(WEEKDAY, fa.CallDay) AS DayOfWeek,
+    DATENAME(MONTH, fa.CallDay) AS MonthName,
+    fa.ActiveCustomerCount,
+    rr.RecentRatePer1000,
+    ROUND(si.SeasonalIndex, 3) AS SeasonalIndex,
+    ROUND(rr.RecentRatePer1000 * si.SeasonalIndex, 3) AS AdjustedRatePer1000,
+    ROUND((rr.RecentRatePer1000 * si.SeasonalIndex / 1000.0) * fa.ActiveCustomerCount, 0) AS ForecastedCalls
+FROM ForecastActive fa
+JOIN RecentRates rr ON rr.DayNum = DATEPART(WEEKDAY, fa.CallDay)
+JOIN SeasonalIndex si ON si.CallMonth = MONTH(fa.CallDay)
+ORDER BY fa.CallDay;
