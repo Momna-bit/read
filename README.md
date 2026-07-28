@@ -489,8 +489,18 @@ GROUP BY cc.BillBucket, cc.CreditBucket
 ORDER BY cc.BillBucket, cc.CreditBucket;
 
 
--- STEP A: Confirm actual columns on Care_CallAI before building anything
-SELECT COLUMN_NAME, DATA_TYPE
-FROM INFORMATION_SCHEMA.COLUMNS
-WHERE TABLE_NAME = 'Care_CallAI'
-ORDER BY ORDINAL_POSITION;
+-- STEP 1: Check how much of the volume is unclassified ("no reason captured")
+SELECT
+    CASE 
+        WHEN [call.reason] IS NULL OR [call.reason] = '' THEN 'Unclassified'
+        ELSE [call.reason]
+    END AS ReasonBucket,
+    COUNT(*) AS CallCount
+FROM Care_CallAI
+WHERE Date >= DATEADD(DAY, -180, CAST(GETDATE() AS DATE))
+GROUP BY CASE 
+        WHEN [call.reason] IS NULL OR [call.reason] = '' THEN 'Unclassified'
+        ELSE [call.reason]
+    END
+ORDER BY CallCount DESC;
+
