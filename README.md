@@ -504,3 +504,26 @@ GROUP BY CASE
     END
 ORDER BY CallCount DESC;
 
+
+-- STEP 2: Join call-reason classification to actual agent-handled call volume,
+-- broken out by day, so deviations from expected can eventually be flagged
+SELECT
+    CAST(ivr.CallDate AS DATE) AS CallDay,
+    CASE 
+        WHEN cai.[call.reason] IS NULL OR cai.[call.reason] = '' THEN 'Unclassified'
+        ELSE cai.[call.reason]
+    END AS ReasonBucket,
+    COUNT(*) AS CallCount
+FROM dbo.IVR ivr
+JOIN Care_CallAI cai ON cai.ContactID = ivr.ContactID
+WHERE ivr.Department = 'Care'
+    AND ivr.CallType IN ('Inbound', 'Transfer')
+    AND ivr.AgentTalkTime > 0
+    AND ivr.CallDate >= DATEADD(DAY, -180, CAST(GETDATE() AS DATE))
+GROUP BY CAST(ivr.CallDate AS DATE),
+    CASE 
+        WHEN cai.[call.reason] IS NULL OR cai.[call.reason] = '' THEN 'Unclassified'
+        ELSE cai.[call.reason]
+    END
+ORDER BY CallDay, CallCount DESC;
+
