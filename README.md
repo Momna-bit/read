@@ -40,4 +40,108 @@ npm list react-dom
 npm run dev
 
 
+-- ============================================================================
+-- SEASONAL ADJUSTMENT FACTOR
+-- Isolates month-of-year seasonality, independent of the year-over-year
+-- level shift caused by IVR/phone system changes
+-- ============================================================================
+
+WITH BaselineCount AS (
+    SELECT COUNT(*) AS BaselineCount
+    FROM iSigma_Customer_Master
+    WHERE Market = 'Texas' AND CustomerType = 'Residential'
+        AND FlowStart < '2022-07-01'
+        AND (FlowEnd IS NULL OR FlowEnd >= '2022-07-01')
+),
+
+Calendar AS (
+    SELECT 
+        CAST([Date] AS DATE) AS CallDay, 
+        CASE WHEN USHoliday IS NOT NULL THEN 1 ELSE 0 END AS IsHoliday
+    FROM vw_calendarWH 
+    WHERE [Date] >= '2022-07-01'
+),
+
+ActiveDelta AS (
+    SELECT CAST(FlowStart AS DATE) AS EventDate, 1 AS Delta
+    FROM iSigma_Customer_Master
+    WHERE Market = 'Texas' AND CustomerType = 'Residential' 
+        AND FlowStart >= '2022-07-01'
+    UNION ALL
+    SELECT CAST(DATEADD(DAY, 1, FlowEnd) AS DATE) AS EventDate, -1 AS Delta
+    FROM iSigma_Customer_Master
+    WHERE Market = 'Texas' AND CustomerType = 'Residential' 
+        AND FlowEnd >= '2022-07-01'
+),
+
+DailyDelta AS (
+    SELECT EventDate, SUM(Delta) AS NetChange 
+    FROM ActiveDelta 
+    GROUP BY EventDate
+),
+
+DailyActive AS (
+    SELECT
+        cal.CallDay,
+        cal.IsHoliday,
+        bc.BaselineCount + ISNULL((
+            SELECT SUM(dd.NetChange) 
+            FROM DailyDelta dd 
+            WHERE dd.EventDate <= cal.CallDay
+        ), 0) AS ActiveCustomerCount
+    FROM Calendar cal
+    CROSS JOIN BaselineCount bc
+),
+
+FilteredCalls AS (
+    SELECT
+        CAST(CallDate AS DATE) AS CallDay,
+        COUNT(*) AS AgentHandledCalls
+    FROM dbo.IVR
+    WHERE Department = 'Care'
+        AND CallType IN ('Inbound', 'Transfer')
+        AND AgentTalkTime > 0
+        AND (Queue IS NULL OR (Queue NOT LIKE '%Alberta%' AND Queue NOT LIKE '%California%' AND Queue NOT LIKE '%NorthCanada%'))
+        AND CallDate >= '2022-07-01'
+    GROUP BY CAST(CallDate AS DATE)
+),
+
+DailyRates AS (
+    -- STEP 1: Daily rate, tagged with year and month, holidays excluded
+    SELECT
+        da.CallDay,
+        YEAR(da.CallDay) AS CallYear,
+        MONTH(da.CallDay) AS CallMonth,
+        CAST(ISNULL(fc.AgentHandledCalls, 0) AS FLOAT) / NULLIF(da.ActiveCustomerCount, 0) * 1000 AS RatePer1000
+    FROM DailyActive da
+    LEFT JOIN FilteredCalls fc ON fc.CallDay = da.CallDay
+    WHERE da.IsHoliday = 0
+),
+
+YearlyAverage AS (
+    -- STEP 2: Each year's own average rate (this is what we normalize against)
+    SELECT CallYear, AVG(RatePer1000) AS YearAvgRate
+    FROM DailyRates
+    GROUP BY CallYear
+),
+
+NormalizedDaily AS (
+    -- STEP 3: Express each day as a ratio to its OWN year's average
+    -- (cancels out the year-over-year level shift from phone system changes)
+    SELECT
+        dr.CallMonth,
+        dr.RatePer1000 / NULLIF(ya.YearAvgRate, 0) AS NormalizedRatio
+    FROM DailyRates dr
+    JOIN YearlyAverage ya ON ya.CallYear = dr.CallYear
+)
+
+-- STEP 4: Average the normalized ratios by calendar month = seasonal index
+SELECT
+    CallMonth,
+    DATENAME(MONTH, DATEFROMPARTS(2000, CallMonth, 1)) AS MonthName,
+    COUNT(*) AS DaysObserved,
+    ROUND(AVG(NormalizedRatio), 3) AS SeasonalIndex
+FROM NormalizedDaily
+GROUP BY CallMonth
+ORDER BY CallMonth;
 
