@@ -487,3 +487,10 @@ FROM CustomerCohort cc
 LEFT JOIN CallVolume cv ON cv.cust_id = cc.cust_id
 GROUP BY cc.BillBucket, cc.CreditBucket
 ORDER BY cc.BillBucket, cc.CreditBucket;
+
+
+-- STEP A: Confirm actual columns on Care_CallAI before building anything
+SELECT COLUMN_NAME, DATA_TYPE
+FROM INFORMATION_SCHEMA.COLUMNS
+WHERE TABLE_NAME = 'Care_CallAI'
+ORDER BY ORDINAL_POSITION;
