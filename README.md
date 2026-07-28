@@ -277,3 +277,7 @@ WHERE da.CallDay >= CAST(GETDATE() AS DATE)
     AND da.CallDay < DATEADD(DAY, 90, CAST(GETDATE() AS DATE))
 ORDER BY da.CallDay;
 
+
+-- Check how far vw_calendarWH extends into the future
+SELECT MAX([Date]) AS LatestCalendarDate
+FROM vw_calendarWH;
