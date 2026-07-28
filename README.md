@@ -147,9 +147,17 @@ ORDER BY CallMonth;
 
 
 
+
+
+-- Check how far vw_calendarWH extends into the future
+SELECT MAX([Date]) AS LatestCalendarDate
+FROM vw_calendarWH;
+
+
 -- ============================================================================
 -- COMBINED FORECAST: Day-of-Week Blended Rate x Seasonal Index
--- Projects daily call volume forward using both adjustments together
+-- Fixed: builds its own 90-day future date spine, since vw_calendarWH
+-- only extends through today and has no future rows
 -- ============================================================================
 
 WITH BaselineCount AS (
@@ -161,6 +169,7 @@ WITH BaselineCount AS (
 ),
 
 Calendar AS (
+    -- Historical calendar, used only to train the seasonal index
     SELECT 
         CAST([Date] AS DATE) AS CallDay, 
         CASE WHEN USHoliday IS NOT NULL THEN 1 ELSE 0 END AS IsHoliday
@@ -186,7 +195,8 @@ DailyDelta AS (
     GROUP BY EventDate
 ),
 
-DailyActive AS (
+HistoricalActive AS (
+    -- Used only to train the seasonal index (unchanged from before)
     SELECT
         cal.CallDay,
         cal.IsHoliday,
@@ -214,13 +224,13 @@ FilteredCalls AS (
 
 DailyRates AS (
     SELECT
-        da.CallDay,
-        YEAR(da.CallDay) AS CallYear,
-        MONTH(da.CallDay) AS CallMonth,
-        CAST(ISNULL(fc.AgentHandledCalls, 0) AS FLOAT) / NULLIF(da.ActiveCustomerCount, 0) * 1000 AS RatePer1000
-    FROM DailyActive da
-    LEFT JOIN FilteredCalls fc ON fc.CallDay = da.CallDay
-    WHERE da.IsHoliday = 0
+        ha.CallDay,
+        YEAR(ha.CallDay) AS CallYear,
+        MONTH(ha.CallDay) AS CallMonth,
+        CAST(ISNULL(fc.AgentHandledCalls, 0) AS FLOAT) / NULLIF(ha.ActiveCustomerCount, 0) * 1000 AS RatePer1000
+    FROM HistoricalActive ha
+    LEFT JOIN FilteredCalls fc ON fc.CallDay = ha.CallDay
+    WHERE ha.IsHoliday = 0
 ),
 
 YearlyAverage AS (
@@ -238,46 +248,57 @@ NormalizedDaily AS (
 ),
 
 SeasonalIndex AS (
-    -- Seasonal index per calendar month (from prior validated step)
-    SELECT
-        CallMonth,
-        AVG(NormalizedRatio) AS SeasonalIndex
+    SELECT CallMonth, AVG(NormalizedRatio) AS SeasonalIndex
     FROM NormalizedDaily
     GROUP BY CallMonth
 ),
 
 BlendedRates AS (
-    -- Blended day-of-week rate (from prior validated step)
     SELECT * FROM (VALUES
-        (1, 0.000),
-        (2, 7.814),
-        (3, 6.513),
-        (4, 5.872),
-        (5, 5.188),
-        (6, 5.397),
-        (7, 2.162)
+        (1, 0.000), (2, 7.814), (3, 6.513), (4, 5.872),
+        (5, 5.188), (6, 5.397), (7, 2.162)
     ) AS t(DayNum, BlendedRatePer1000)
+),
+
+-- STEP: Self-contained 90-day future date spine (no recursion, Fabric-safe)
+Digits AS (
+    SELECT n FROM (VALUES (0),(1),(2),(3),(4),(5),(6),(7),(8),(9)) AS d(n)
+),
+Numbers AS (
+    SELECT (d1.n + d2.n * 10) AS OffsetDay
+    FROM Digits d1 CROSS JOIN Digits d2
+),
+ForecastCalendar AS (
+    SELECT DATEADD(DAY, OffsetDay, CAST(GETDATE() AS DATE)) AS CallDay
+    FROM Numbers
+    WHERE OffsetDay < 90
+),
+
+-- Project active customer count forward the same way, independent of vw_calendarWH
+ForecastActive AS (
+    SELECT
+        fc2.CallDay,
+        bc.BaselineCount + ISNULL((
+            SELECT SUM(dd.NetChange) 
+            FROM DailyDelta dd 
+            WHERE dd.EventDate <= fc2.CallDay
+        ), 0) AS ActiveCustomerCount
+    FROM ForecastCalendar fc2
+    CROSS JOIN BaselineCount bc
 )
 
 -- STEP: Combined 90-day forward projection
 SELECT
-    da.CallDay,
-    DATENAME(WEEKDAY, da.CallDay) AS DayOfWeek,
-    DATENAME(MONTH, da.CallDay) AS MonthName,
-    da.IsHoliday,
-    da.ActiveCustomerCount,
+    fa.CallDay,
+    DATENAME(WEEKDAY, fa.CallDay) AS DayOfWeek,
+    DATENAME(MONTH, fa.CallDay) AS MonthName,
+    fa.ActiveCustomerCount,
     br.BlendedRatePer1000,
     ROUND(si.SeasonalIndex, 3) AS SeasonalIndex,
     ROUND(br.BlendedRatePer1000 * si.SeasonalIndex, 3) AS AdjustedRatePer1000,
-    ROUND((br.BlendedRatePer1000 * si.SeasonalIndex / 1000.0) * da.ActiveCustomerCount, 0) AS ForecastedCalls
-FROM DailyActive da
-JOIN BlendedRates br ON br.DayNum = DATEPART(WEEKDAY, da.CallDay)
-JOIN SeasonalIndex si ON si.CallMonth = MONTH(da.CallDay)
-WHERE da.CallDay >= CAST(GETDATE() AS DATE)
-    AND da.CallDay < DATEADD(DAY, 90, CAST(GETDATE() AS DATE))
-ORDER BY da.CallDay;
+    ROUND((br.BlendedRatePer1000 * si.SeasonalIndex / 1000.0) * fa.ActiveCustomerCount, 0) AS ForecastedCalls
+FROM ForecastActive fa
+JOIN BlendedRates br ON br.DayNum = DATEPART(WEEKDAY, fa.CallDay)
+JOIN SeasonalIndex si ON si.CallMonth = MONTH(fa.CallDay)
+ORDER BY fa.CallDay;
 
-
--- Check how far vw_calendarWH extends into the future
-SELECT MAX([Date]) AS LatestCalendarDate
-FROM vw_calendarWH;
