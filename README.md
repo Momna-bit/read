@@ -47,7 +47,11 @@ WHERE TABLE_NAME = 'iSigma_Bill_Master'
 ORDER BY ORDINAL_POSITION;
 
 
--- STEP 2 (corrected): Rank baseline bills by Bill_Date instead of BillOrder value
+-- ============================================================================
+-- TASK 7: PROACTIVE USAGE & BILL SHOCK ALERT MODEL
+-- STEP 2 (with baseline confidence flag)
+-- ============================================================================
+
 WITH Callers AS (
     SELECT DISTINCT ivr.AccountNumber AS cust_id
     FROM dbo.IVR ivr
@@ -72,8 +76,6 @@ MostRecentBill AS (
 ),
 
 PersonalBaseline AS (
-    -- Baseline = the 12 bills immediately BEFORE the most recent one (rn 2-13),
-    -- ranked by actual date, regardless of what BillOrder says
     SELECT
         cust_id,
         AVG(NetCharge) AS BaselineNetCharge,
@@ -101,6 +103,11 @@ SELECT
     mrb.NetCharge AS MostRecentNetCharge,
     pb.BaselineNetCharge,
     pb.BaselineBillCount,
+    CASE 
+        WHEN pb.BaselineBillCount >= 9 THEN 'High confidence'
+        WHEN pb.BaselineBillCount >= 4 THEN 'Medium confidence'
+        ELSE 'Low confidence (short tenure)'
+    END AS BaselineConfidence,
     ROUND(mrb.NetCharge - pb.BaselineNetCharge, 2) AS DollarIncrease,
     ROUND((mrb.NetCharge - pb.BaselineNetCharge) / NULLIF(pb.BaselineNetCharge, 0) * 100, 2) AS PercentIncrease,
     mrb.Usage AS MostRecentUsage,
@@ -113,11 +120,3 @@ FROM MostRecentBill mrb
 JOIN PersonalBaseline pb ON pb.cust_id = mrb.cust_id
 JOIN CustomerAttributes ca ON ca.cust_id = mrb.cust_id
 ORDER BY DollarIncrease DESC;
-
-
--- Add this to the SELECT list, right after BaselineBillCount
-CASE 
-    WHEN pb.BaselineBillCount >= 9 THEN 'High confidence'
-    WHEN pb.BaselineBillCount >= 4 THEN 'Medium confidence'
-    ELSE 'Low confidence (short tenure)'
-END AS BaselineConfidence
