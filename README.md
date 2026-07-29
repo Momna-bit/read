@@ -113,3 +113,11 @@ FROM MostRecentBill mrb
 JOIN PersonalBaseline pb ON pb.cust_id = mrb.cust_id
 JOIN CustomerAttributes ca ON ca.cust_id = mrb.cust_id
 ORDER BY DollarIncrease DESC;
+
+
+-- Add this to the SELECT list, right after BaselineBillCount
+CASE 
+    WHEN pb.BaselineBillCount >= 9 THEN 'High confidence'
+    WHEN pb.BaselineBillCount >= 4 THEN 'Medium confidence'
+    ELSE 'Low confidence (short tenure)'
+END AS BaselineConfidence
