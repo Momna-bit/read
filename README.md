@@ -384,3 +384,95 @@ JOIN MedianPercentByGroup mp ON mp.CallerFlag = m.CallerFlag
 GROUP BY m.CallerFlag
 ORDER BY m.CallerFlag;
 
+
+-- ============================================================================
+-- TASK 7 STEP 5: Threshold Sensitivity Test
+-- Tests combinations of (bill increase %) x (credit score) to see how many
+-- Callers each rule would have caught, and how many Non-Callers it would flag
+-- ============================================================================
+
+WITH Callers AS (
+    SELECT DISTINCT ivr.AccountNumber AS cust_id
+    FROM dbo.IVR ivr
+    JOIN Care_CallAI cai ON cai.ContactID = ivr.ContactID
+    WHERE ivr.Department = 'Care'
+        AND ivr.CallType IN ('Inbound', 'Transfer')
+        AND ivr.AgentTalkTime > 0
+        AND cai.[call.reason] IN ('Bill Explanation', 'Bill Dispute')
+        AND ivr.CallDate >= DATEADD(DAY, -180, CAST(GETDATE() AS DATE))
+        AND ivr.AccountNumber IS NOT NULL
+),
+
+ActiveResidential AS (
+    SELECT cust_id, CreditScore, FlowStart,
+        DATEDIFF(DAY, FlowStart, CAST(GETDATE() AS DATE)) AS TenureDays
+    FROM iSigma_Customer_Master
+    WHERE Market = 'Texas' AND CustomerType = 'Residential'
+        AND CreditScore <> 0
+        AND FlowEnd IS NULL
+),
+
+RankedBills AS (
+    SELECT bm.*,
+        ROW_NUMBER() OVER (PARTITION BY bm.cust_id ORDER BY bm.Bill_Date DESC) AS rn
+    FROM iSigma_Bill_Master bm
+    JOIN ActiveResidential ar ON ar.cust_id = bm.cust_id
+),
+
+MostRecentBill AS (
+    SELECT * FROM RankedBills WHERE rn = 1
+),
+
+PersonalBaseline AS (
+    SELECT
+        cust_id,
+        AVG(NetCharge) AS BaselineNetCharge,
+        COUNT(*) AS BaselineBillCount
+    FROM RankedBills
+    WHERE rn BETWEEN 2 AND 13
+    GROUP BY cust_id
+),
+
+Metrics AS (
+    SELECT
+        mrb.cust_id,
+        CASE WHEN c.cust_id IS NOT NULL THEN 'Caller' ELSE 'Non-Caller' END AS CallerFlag,
+        ar.CreditScore,
+        (mrb.NetCharge - pb.BaselineNetCharge) / NULLIF(pb.BaselineNetCharge, 0) * 100 AS PercentIncrease
+    FROM MostRecentBill mrb
+    JOIN PersonalBaseline pb ON pb.cust_id = mrb.cust_id
+    JOIN ActiveResidential ar ON ar.cust_id = mrb.cust_id
+    LEFT JOIN Callers c ON c.cust_id = mrb.cust_id
+    WHERE pb.BaselineBillCount >= 9
+),
+
+GroupTotals AS (
+    SELECT
+        SUM(CASE WHEN CallerFlag = 'Caller' THEN 1 ELSE 0 END) AS TotalCallers,
+        SUM(CASE WHEN CallerFlag = 'Non-Caller' THEN 1 ELSE 0 END) AS TotalNonCallers
+    FROM Metrics
+),
+
+ThresholdCombos AS (
+    SELECT * FROM (VALUES
+        (30, 700), (30, 750), (30, 800),
+        (40, 700), (40, 750), (40, 800),
+        (50, 700), (50, 750), (50, 800)
+    ) AS t(PctThreshold, CreditThreshold)
+)
+
+-- STEP 5 FINAL OUTPUT: reach vs. precision for each threshold combination
+SELECT
+    tc.PctThreshold,
+    tc.CreditThreshold,
+    SUM(CASE WHEN m.CallerFlag = 'Caller' AND m.PercentIncrease >= tc.PctThreshold AND m.CreditScore <= tc.CreditThreshold THEN 1 ELSE 0 END) AS CallersCaught,
+    gt.TotalCallers,
+    ROUND(100.0 * SUM(CASE WHEN m.CallerFlag = 'Caller' AND m.PercentIncrease >= tc.PctThreshold AND m.CreditScore <= tc.CreditThreshold THEN 1 ELSE 0 END) / NULLIF(gt.TotalCallers, 0), 1) AS PctCallersCaught,
+    SUM(CASE WHEN m.CallerFlag = 'Non-Caller' AND m.PercentIncrease >= tc.PctThreshold AND m.CreditScore <= tc.CreditThreshold THEN 1 ELSE 0 END) AS NonCallersFlagged,
+    gt.TotalNonCallers,
+    ROUND(100.0 * SUM(CASE WHEN m.CallerFlag = 'Non-Caller' AND m.PercentIncrease >= tc.PctThreshold AND m.CreditScore <= tc.CreditThreshold THEN 1 ELSE 0 END) / NULLIF(gt.TotalNonCallers, 0), 2) AS PctNonCallersFlagged
+FROM Metrics m
+CROSS JOIN ThresholdCombos tc
+CROSS JOIN GroupTotals gt
+GROUP BY tc.PctThreshold, tc.CreditThreshold, gt.TotalCallers, gt.TotalNonCallers
+ORDER BY tc.PctThreshold, tc.CreditThreshold;
