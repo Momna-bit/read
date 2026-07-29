@@ -46,3 +46,73 @@ FROM INFORMATION_SCHEMA.COLUMNS
 WHERE TABLE_NAME = 'iSigma_Bill_Master'
 ORDER BY ORDINAL_POSITION;
 
+
+-- ============================================================================
+-- TASK 7: PROACTIVE USAGE & BILL SHOCK ALERT MODEL
+-- STEP 2: Build the caller population and pull per-customer bill metrics
+-- ============================================================================
+
+WITH Callers AS (
+    -- Bill-explanation / bill-dispute callers, last 180 days (same population basis as before)
+    SELECT DISTINCT ivr.AccountNumber AS cust_id
+    FROM dbo.IVR ivr
+    JOIN Care_CallAI cai ON cai.ContactID = ivr.ContactID
+    WHERE ivr.Department = 'Care'
+        AND ivr.CallType IN ('Inbound', 'Transfer')
+        AND ivr.AgentTalkTime > 0
+        AND cai.[call.reason] IN ('Bill Explanation', 'Bill Dispute')
+        AND ivr.CallDate >= DATEADD(DAY, -180, CAST(GETDATE() AS DATE))
+        AND ivr.AccountNumber IS NOT NULL
+),
+
+MostRecentBill AS (
+    -- Each caller's most recent bill
+    SELECT bm.*,
+        ROW_NUMBER() OVER (PARTITION BY bm.cust_id ORDER BY bm.Bill_Date DESC) AS rn
+    FROM iSigma_Bill_Master bm
+    JOIN Callers c ON c.cust_id = bm.cust_id
+),
+
+PersonalBaseline AS (
+    -- Personal baseline: average NetCharge and Usage over the prior 12 bills, excluding the most recent
+    SELECT
+        bm.cust_id,
+        AVG(bm.NetCharge) AS BaselineNetCharge,
+        AVG(bm.Usage) AS BaselineUsage
+    FROM iSigma_Bill_Master bm
+    JOIN Callers c ON c.cust_id = bm.cust_id
+    WHERE bm.BillOrder BETWEEN 2 AND 13  -- excludes most recent (BillOrder 1), uses next 12
+    GROUP BY bm.cust_id
+),
+
+CustomerAttributes AS (
+    SELECT
+        cust_id,
+        CreditScore,
+        FlowStart,
+        DATEDIFF(DAY, FlowStart, CAST(GETDATE() AS DATE)) AS TenureDays
+    FROM iSigma_Customer_Master
+    WHERE Market = 'Texas' AND CustomerType = 'Residential'
+        AND CreditScore <> 0  -- exclude placeholder "no score on file"
+)
+
+-- STEP 2 FINAL OUTPUT: one row per caller, with all metrics as separate fields
+SELECT
+    mrb.cust_id,
+    mrb.Bill_Date,
+    mrb.NetCharge AS MostRecentNetCharge,
+    pb.BaselineNetCharge,
+    ROUND(mrb.NetCharge - pb.BaselineNetCharge, 2) AS DollarIncrease,
+    ROUND((mrb.NetCharge - pb.BaselineNetCharge) / NULLIF(pb.BaselineNetCharge, 0) * 100, 2) AS PercentIncrease,
+    mrb.Usage AS MostRecentUsage,
+    pb.BaselineUsage,
+    mrb.ServicePeriod AS ServicePeriodDays,
+    ROUND((mrb.Usage - pb.BaselineUsage) / NULLIF(mrb.ServicePeriod, 0), 3) AS UsageIncreasePerDay,
+    ca.CreditScore,
+    ca.TenureDays
+FROM MostRecentBill mrb
+JOIN PersonalBaseline pb ON pb.cust_id = mrb.cust_id
+JOIN CustomerAttributes ca ON ca.cust_id = mrb.cust_id
+WHERE mrb.rn = 1
+ORDER BY DollarIncrease DESC;
+
