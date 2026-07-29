@@ -120,3 +120,76 @@ FROM MostRecentBill mrb
 JOIN PersonalBaseline pb ON pb.cust_id = mrb.cust_id
 JOIN CustomerAttributes ca ON ca.cust_id = mrb.cust_id
 ORDER BY DollarIncrease DESC;
+
+
+-- ============================================================================
+-- TASK 7 STEP 3: Distribution summary by baseline confidence tier
+-- Characterizes "typical" bill shock rather than just the extreme top rows
+-- ============================================================================
+
+WITH Callers AS (
+    SELECT DISTINCT ivr.AccountNumber AS cust_id
+    FROM dbo.IVR ivr
+    JOIN Care_CallAI cai ON cai.ContactID = ivr.ContactID
+    WHERE ivr.Department = 'Care'
+        AND ivr.CallType IN ('Inbound', 'Transfer')
+        AND ivr.AgentTalkTime > 0
+        AND cai.[call.reason] IN ('Bill Explanation', 'Bill Dispute')
+        AND ivr.CallDate >= DATEADD(DAY, -180, CAST(GETDATE() AS DATE))
+        AND ivr.AccountNumber IS NOT NULL
+),
+
+RankedBills AS (
+    SELECT bm.*,
+        ROW_NUMBER() OVER (PARTITION BY bm.cust_id ORDER BY bm.Bill_Date DESC) AS rn
+    FROM iSigma_Bill_Master bm
+    JOIN Callers c ON c.cust_id = bm.cust_id
+),
+
+MostRecentBill AS (
+    SELECT * FROM RankedBills WHERE rn = 1
+),
+
+PersonalBaseline AS (
+    SELECT
+        cust_id,
+        AVG(NetCharge) AS BaselineNetCharge,
+        AVG(Usage) AS BaselineUsage,
+        COUNT(*) AS BaselineBillCount
+    FROM RankedBills
+    WHERE rn BETWEEN 2 AND 13
+    GROUP BY cust_id
+),
+
+Metrics AS (
+    SELECT
+        mrb.cust_id,
+        pb.BaselineBillCount,
+        CASE 
+            WHEN pb.BaselineBillCount >= 9 THEN 'High confidence'
+            WHEN pb.BaselineBillCount >= 4 THEN 'Medium confidence'
+            ELSE 'Low confidence (short tenure)'
+        END AS BaselineConfidence,
+        mrb.NetCharge - pb.BaselineNetCharge AS DollarIncrease,
+        (mrb.NetCharge - pb.BaselineNetCharge) / NULLIF(pb.BaselineNetCharge, 0) * 100 AS PercentIncrease
+    FROM MostRecentBill mrb
+    JOIN PersonalBaseline pb ON pb.cust_id = mrb.cust_id
+)
+
+-- STEP 3 FINAL OUTPUT: distribution stats per confidence tier
+SELECT
+    BaselineConfidence,
+    COUNT(*) AS CustomerCount,
+    ROUND(AVG(DollarIncrease), 2) AS AvgDollarIncrease,
+    ROUND(AVG(PercentIncrease), 2) AS AvgPercentIncrease,
+    ROUND(
+        (SELECT TOP 1 DollarIncrease FROM Metrics m2 
+         WHERE m2.BaselineConfidence = m1.BaselineConfidence
+         ORDER BY DollarIncrease OFFSET (COUNT(*) OVER (PARTITION BY m1.BaselineConfidence) / 2) ROWS FETCH NEXT 1 ROWS ONLY)
+    , 2) AS ApproxMedianDollarIncrease,
+    ROUND(MIN(PercentIncrease), 2) AS MinPercentIncrease,
+    ROUND(MAX(PercentIncrease), 2) AS MaxPercentIncrease
+FROM Metrics m1
+GROUP BY BaselineConfidence
+ORDER BY BaselineConfidence;
+
