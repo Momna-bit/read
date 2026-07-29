@@ -193,3 +193,87 @@ FROM Metrics m1
 GROUP BY BaselineConfidence
 ORDER BY BaselineConfidence;
 
+
+
+-- ============================================================================
+-- TASK 7 STEP 3 (fixed): Distribution summary by baseline confidence tier
+-- ============================================================================
+
+WITH Callers AS (
+    SELECT DISTINCT ivr.AccountNumber AS cust_id
+    FROM dbo.IVR ivr
+    JOIN Care_CallAI cai ON cai.ContactID = ivr.ContactID
+    WHERE ivr.Department = 'Care'
+        AND ivr.CallType IN ('Inbound', 'Transfer')
+        AND ivr.AgentTalkTime > 0
+        AND cai.[call.reason] IN ('Bill Explanation', 'Bill Dispute')
+        AND ivr.CallDate >= DATEADD(DAY, -180, CAST(GETDATE() AS DATE))
+        AND ivr.AccountNumber IS NOT NULL
+),
+
+RankedBills AS (
+    SELECT bm.*,
+        ROW_NUMBER() OVER (PARTITION BY bm.cust_id ORDER BY bm.Bill_Date DESC) AS rn
+    FROM iSigma_Bill_Master bm
+    JOIN Callers c ON c.cust_id = bm.cust_id
+),
+
+MostRecentBill AS (
+    SELECT * FROM RankedBills WHERE rn = 1
+),
+
+PersonalBaseline AS (
+    SELECT
+        cust_id,
+        AVG(NetCharge) AS BaselineNetCharge,
+        AVG(Usage) AS BaselineUsage,
+        COUNT(*) AS BaselineBillCount
+    FROM RankedBills
+    WHERE rn BETWEEN 2 AND 13
+    GROUP BY cust_id
+),
+
+Metrics AS (
+    SELECT
+        mrb.cust_id,
+        CASE 
+            WHEN pb.BaselineBillCount >= 9 THEN 'High confidence'
+            WHEN pb.BaselineBillCount >= 4 THEN 'Medium confidence'
+            ELSE 'Low confidence (short tenure)'
+        END AS BaselineConfidence,
+        mrb.NetCharge - pb.BaselineNetCharge AS DollarIncrease,
+        (mrb.NetCharge - pb.BaselineNetCharge) / NULLIF(pb.BaselineNetCharge, 0) * 100 AS PercentIncrease
+    FROM MostRecentBill mrb
+    JOIN PersonalBaseline pb ON pb.cust_id = mrb.cust_id
+),
+
+RankedMetrics AS (
+    -- Rank each row within its confidence tier so we can pick the middle one (median)
+    SELECT
+        BaselineConfidence,
+        DollarIncrease,
+        ROW_NUMBER() OVER (PARTITION BY BaselineConfidence ORDER BY DollarIncrease) AS rn,
+        COUNT(*) OVER (PARTITION BY BaselineConfidence) AS cnt
+    FROM Metrics
+),
+
+MedianByTier AS (
+    SELECT BaselineConfidence, DollarIncrease AS ApproxMedianDollarIncrease
+    FROM RankedMetrics
+    WHERE rn = (cnt + 1) / 2
+)
+
+-- STEP 3 FINAL OUTPUT
+SELECT
+    m.BaselineConfidence,
+    COUNT(*) AS CustomerCount,
+    ROUND(AVG(m.DollarIncrease), 2) AS AvgDollarIncrease,
+    ROUND(AVG(m.PercentIncrease), 2) AS AvgPercentIncrease,
+    ROUND(MAX(mb.ApproxMedianDollarIncrease), 2) AS ApproxMedianDollarIncrease,
+    ROUND(MIN(m.PercentIncrease), 2) AS MinPercentIncrease,
+    ROUND(MAX(m.PercentIncrease), 2) AS MaxPercentIncrease
+FROM Metrics m
+JOIN MedianByTier mb ON mb.BaselineConfidence = m.BaselineConfidence
+GROUP BY m.BaselineConfidence
+ORDER BY m.BaselineConfidence;
+
