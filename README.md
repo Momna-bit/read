@@ -278,10 +278,11 @@ GROUP BY m.BaselineConfidence
 ORDER BY m.BaselineConfidence;
 
 
+
 -- ============================================================================
--- TASK 7 STEP 4: Caller vs. Non-Caller Comparison
--- Restricted to "high confidence" baselines (12+ prior bills) in both groups,
--- so any difference reflects real behavior, not baseline noise
+-- TASK 7 STEP 4 (corrected): Caller vs. Non-Caller Comparison
+-- Adds median percent increase + outlier-capped average, so extreme cases
+-- don't distort the comparison the way they did last time
 -- ============================================================================
 
 WITH Callers AS (
@@ -340,36 +341,46 @@ Metrics AS (
     JOIN PersonalBaseline pb ON pb.cust_id = mrb.cust_id
     JOIN ActiveResidential ar ON ar.cust_id = mrb.cust_id
     LEFT JOIN Callers c ON c.cust_id = mrb.cust_id
-    WHERE pb.BaselineBillCount >= 9  -- high confidence only, both groups
+    WHERE pb.BaselineBillCount >= 9
 ),
 
-RankedMetrics AS (
-    SELECT
-        CallerFlag,
-        DollarIncrease,
+RankedDollar AS (
+    SELECT CallerFlag, DollarIncrease,
         ROW_NUMBER() OVER (PARTITION BY CallerFlag ORDER BY DollarIncrease) AS rn,
         COUNT(*) OVER (PARTITION BY CallerFlag) AS cnt
     FROM Metrics
 ),
-
-MedianByGroup AS (
+MedianDollarByGroup AS (
     SELECT CallerFlag, DollarIncrease AS MedianDollarIncrease
-    FROM RankedMetrics
-    WHERE rn = (cnt + 1) / 2
+    FROM RankedDollar WHERE rn = (cnt + 1) / 2
+),
+
+RankedPercent AS (
+    SELECT CallerFlag, PercentIncrease,
+        ROW_NUMBER() OVER (PARTITION BY CallerFlag ORDER BY PercentIncrease) AS rn,
+        COUNT(*) OVER (PARTITION BY CallerFlag) AS cnt
+    FROM Metrics
+),
+MedianPercentByGroup AS (
+    SELECT CallerFlag, PercentIncrease AS MedianPercentIncrease
+    FROM RankedPercent WHERE rn = (cnt + 1) / 2
 )
 
--- STEP 4 FINAL OUTPUT: side-by-side comparison
+-- STEP 4 FINAL OUTPUT: side-by-side comparison, outlier-resistant
 SELECT
     m.CallerFlag,
     COUNT(*) AS CustomerCount,
     ROUND(AVG(m.DollarIncrease), 2) AS AvgDollarIncrease,
-    ROUND(MAX(mb.MedianDollarIncrease), 2) AS MedianDollarIncrease,
-    ROUND(AVG(m.PercentIncrease), 2) AS AvgPercentIncrease,
+    ROUND(MAX(md.MedianDollarIncrease), 2) AS MedianDollarIncrease,
+    ROUND(AVG(CASE WHEN m.PercentIncrease > 300 THEN 300 ELSE m.PercentIncrease END), 2) AS AvgPercentIncrease_Capped300,
+    ROUND(MAX(mp.MedianPercentIncrease), 2) AS MedianPercentIncrease,
+    SUM(CASE WHEN m.PercentIncrease > 300 THEN 1 ELSE 0 END) AS OutlierCount_Over300Pct,
     ROUND(AVG(m.UsageIncreasePerDay), 3) AS AvgUsageIncreasePerDay,
     ROUND(AVG(CAST(m.CreditScore AS FLOAT)), 0) AS AvgCreditScore,
     ROUND(AVG(CAST(m.TenureDays AS FLOAT)), 0) AS AvgTenureDays
 FROM Metrics m
-JOIN MedianByGroup mb ON mb.CallerFlag = m.CallerFlag
+JOIN MedianDollarByGroup md ON md.CallerFlag = m.CallerFlag
+JOIN MedianPercentByGroup mp ON mp.CallerFlag = m.CallerFlag
 GROUP BY m.CallerFlag
 ORDER BY m.CallerFlag;
 
