@@ -47,13 +47,8 @@ WHERE TABLE_NAME = 'iSigma_Bill_Master'
 ORDER BY ORDINAL_POSITION;
 
 
--- ============================================================================
--- TASK 7: PROACTIVE USAGE & BILL SHOCK ALERT MODEL
--- STEP 2: Build the caller population and pull per-customer bill metrics
--- ============================================================================
-
+-- STEP 2 (corrected): Rank baseline bills by Bill_Date instead of BillOrder value
 WITH Callers AS (
-    -- Bill-explanation / bill-dispute callers, last 180 days (same population basis as before)
     SELECT DISTINCT ivr.AccountNumber AS cust_id
     FROM dbo.IVR ivr
     JOIN Care_CallAI cai ON cai.ContactID = ivr.ContactID
@@ -65,24 +60,28 @@ WITH Callers AS (
         AND ivr.AccountNumber IS NOT NULL
 ),
 
-MostRecentBill AS (
-    -- Each caller's most recent bill
+RankedBills AS (
     SELECT bm.*,
         ROW_NUMBER() OVER (PARTITION BY bm.cust_id ORDER BY bm.Bill_Date DESC) AS rn
     FROM iSigma_Bill_Master bm
     JOIN Callers c ON c.cust_id = bm.cust_id
 ),
 
+MostRecentBill AS (
+    SELECT * FROM RankedBills WHERE rn = 1
+),
+
 PersonalBaseline AS (
-    -- Personal baseline: average NetCharge and Usage over the prior 12 bills, excluding the most recent
+    -- Baseline = the 12 bills immediately BEFORE the most recent one (rn 2-13),
+    -- ranked by actual date, regardless of what BillOrder says
     SELECT
-        bm.cust_id,
-        AVG(bm.NetCharge) AS BaselineNetCharge,
-        AVG(bm.Usage) AS BaselineUsage
-    FROM iSigma_Bill_Master bm
-    JOIN Callers c ON c.cust_id = bm.cust_id
-    WHERE bm.BillOrder BETWEEN 2 AND 13  -- excludes most recent (BillOrder 1), uses next 12
-    GROUP BY bm.cust_id
+        cust_id,
+        AVG(NetCharge) AS BaselineNetCharge,
+        AVG(Usage) AS BaselineUsage,
+        COUNT(*) AS BaselineBillCount
+    FROM RankedBills
+    WHERE rn BETWEEN 2 AND 13
+    GROUP BY cust_id
 ),
 
 CustomerAttributes AS (
@@ -93,15 +92,15 @@ CustomerAttributes AS (
         DATEDIFF(DAY, FlowStart, CAST(GETDATE() AS DATE)) AS TenureDays
     FROM iSigma_Customer_Master
     WHERE Market = 'Texas' AND CustomerType = 'Residential'
-        AND CreditScore <> 0  -- exclude placeholder "no score on file"
+        AND CreditScore <> 0
 )
 
--- STEP 2 FINAL OUTPUT: one row per caller, with all metrics as separate fields
 SELECT
     mrb.cust_id,
     mrb.Bill_Date,
     mrb.NetCharge AS MostRecentNetCharge,
     pb.BaselineNetCharge,
+    pb.BaselineBillCount,
     ROUND(mrb.NetCharge - pb.BaselineNetCharge, 2) AS DollarIncrease,
     ROUND((mrb.NetCharge - pb.BaselineNetCharge) / NULLIF(pb.BaselineNetCharge, 0) * 100, 2) AS PercentIncrease,
     mrb.Usage AS MostRecentUsage,
@@ -113,6 +112,4 @@ SELECT
 FROM MostRecentBill mrb
 JOIN PersonalBaseline pb ON pb.cust_id = mrb.cust_id
 JOIN CustomerAttributes ca ON ca.cust_id = mrb.cust_id
-WHERE mrb.rn = 1
 ORDER BY DollarIncrease DESC;
-
