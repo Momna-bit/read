@@ -476,3 +476,156 @@ CROSS JOIN ThresholdCombos tc
 CROSS JOIN GroupTotals gt
 GROUP BY tc.PctThreshold, tc.CreditThreshold, gt.TotalCallers, gt.TotalNonCallers
 ORDER BY tc.PctThreshold, tc.CreditThreshold;
+
+
+-- ============================================================================
+-- 6-MONTH FORECAST: MONTHLY ROLLUP
+-- Shows avg active customers, total forecasted calls, and the rate per 1,000
+-- as separate columns, month by month -- this is what actually shows the
+-- seasonality ratio Jonathan asked to see
+-- ============================================================================
+
+WITH BaselineCount AS (
+    SELECT COUNT(*) AS BaselineCount
+    FROM iSigma_Customer_Master
+    WHERE Market = 'Texas' AND CustomerType = 'Residential'
+        AND FlowStart < '2022-07-01'
+        AND (FlowEnd IS NULL OR FlowEnd >= '2022-07-01')
+),
+
+Calendar AS (
+    SELECT 
+        CAST([Date] AS DATE) AS CallDay, 
+        CASE WHEN USHoliday IS NOT NULL THEN 1 ELSE 0 END AS IsHoliday
+    FROM vw_calendarWH 
+    WHERE [Date] >= '2022-07-01'
+),
+
+ActiveDelta AS (
+    SELECT CAST(FlowStart AS DATE) AS EventDate, 1 AS Delta
+    FROM iSigma_Customer_Master
+    WHERE Market = 'Texas' AND CustomerType = 'Residential' 
+        AND FlowStart >= '2022-07-01'
+    UNION ALL
+    SELECT CAST(DATEADD(DAY, 1, FlowEnd) AS DATE) AS EventDate, -1 AS Delta
+    FROM iSigma_Customer_Master
+    WHERE Market = 'Texas' AND CustomerType = 'Residential' 
+        AND FlowEnd >= '2022-07-01'
+),
+
+DailyDelta AS (
+    SELECT EventDate, SUM(Delta) AS NetChange 
+    FROM ActiveDelta 
+    GROUP BY EventDate
+),
+
+HistoricalActive AS (
+    SELECT
+        cal.CallDay,
+        cal.IsHoliday,
+        bc.BaselineCount + ISNULL((
+            SELECT SUM(dd.NetChange) 
+            FROM DailyDelta dd 
+            WHERE dd.EventDate <= cal.CallDay
+        ), 0) AS ActiveCustomerCount
+    FROM Calendar cal
+    CROSS JOIN BaselineCount bc
+),
+
+FilteredCalls AS (
+    SELECT
+        CAST(CallDate AS DATE) AS CallDay,
+        COUNT(*) AS AgentHandledCalls
+    FROM dbo.IVR
+    WHERE Department = 'Care'
+        AND CallType IN ('Inbound', 'Transfer')
+        AND AgentTalkTime > 0
+        AND (Queue IS NULL OR (Queue NOT LIKE '%Alberta%' AND Queue NOT LIKE '%California%' AND Queue NOT LIKE '%NorthCanada%'))
+        AND CallDate >= '2022-07-01'
+    GROUP BY CAST(CallDate AS DATE)
+),
+
+DailyRates AS (
+    SELECT
+        ha.CallDay,
+        YEAR(ha.CallDay) AS CallYear,
+        MONTH(ha.CallDay) AS CallMonth,
+        CAST(ISNULL(fc.AgentHandledCalls, 0) AS FLOAT) / NULLIF(ha.ActiveCustomerCount, 0) * 1000 AS RatePer1000
+    FROM HistoricalActive ha
+    LEFT JOIN FilteredCalls fc ON fc.CallDay = ha.CallDay
+    WHERE ha.IsHoliday = 0
+),
+
+YearlyAverage AS (
+    SELECT CallYear, AVG(RatePer1000) AS YearAvgRate
+    FROM DailyRates
+    GROUP BY CallYear
+),
+
+NormalizedDaily AS (
+    SELECT
+        dr.CallMonth,
+        dr.RatePer1000 / NULLIF(ya.YearAvgRate, 0) AS NormalizedRatio
+    FROM DailyRates dr
+    JOIN YearlyAverage ya ON ya.CallYear = dr.CallYear
+),
+
+SeasonalIndex AS (
+    SELECT CallMonth, AVG(NormalizedRatio) AS SeasonalIndex
+    FROM NormalizedDaily
+    GROUP BY CallMonth
+),
+
+RecentRates AS (
+    SELECT * FROM (VALUES
+        (1, 0.000), (2, 6.703), (3, 5.254), (4, 4.826),
+        (5, 4.279), (6, 4.668), (7, 1.875)
+    ) AS t(DayNum, RecentRatePer1000)
+),
+
+Digits AS (
+    SELECT n FROM (VALUES (0),(1),(2),(3),(4),(5),(6),(7),(8),(9)) AS d(n)
+),
+Numbers AS (
+    SELECT (d1.n + d2.n * 10 + d3.n * 100) AS OffsetDay
+    FROM Digits d1 CROSS JOIN Digits d2 CROSS JOIN Digits d3
+),
+ForecastCalendar AS (
+    SELECT DATEADD(DAY, OffsetDay, CAST(GETDATE() AS DATE)) AS CallDay
+    FROM Numbers
+    WHERE OffsetDay < 180
+),
+
+ForecastActive AS (
+    SELECT
+        fc2.CallDay,
+        bc.BaselineCount + ISNULL((
+            SELECT SUM(dd.NetChange) 
+            FROM DailyDelta dd 
+            WHERE dd.EventDate <= fc2.CallDay
+        ), 0) AS ActiveCustomerCount
+    FROM ForecastCalendar fc2
+    CROSS JOIN BaselineCount bc
+),
+
+DailyForecast AS (
+    SELECT
+        fa.CallDay,
+        fa.ActiveCustomerCount,
+        ROUND((rr.RecentRatePer1000 * si.SeasonalIndex / 1000.0) * fa.ActiveCustomerCount, 0) AS ForecastedCalls
+    FROM ForecastActive fa
+    JOIN RecentRates rr ON rr.DayNum = DATEPART(WEEKDAY, fa.CallDay)
+    JOIN SeasonalIndex si ON si.CallMonth = MONTH(fa.CallDay)
+)
+
+-- FINAL OUTPUT: monthly rollup, active customers and call volume shown separately
+SELECT
+    FORMAT(CallDay, 'yyyy-MM') AS ForecastMonth,
+    DATENAME(MONTH, CallDay) AS MonthName,
+    COUNT(*) AS DaysInMonth,
+    ROUND(AVG(CAST(ActiveCustomerCount AS FLOAT)), 0) AS AvgActiveCustomers,
+    SUM(ForecastedCalls) AS TotalForecastedCalls,
+    ROUND(SUM(ForecastedCalls) * 1.0 / NULLIF(AVG(CAST(ActiveCustomerCount AS FLOAT)), 0) * 1000, 2) AS CallsPer1000Customers
+FROM DailyForecast
+GROUP BY FORMAT(CallDay, 'yyyy-MM'), DATENAME(MONTH, CallDay), DATEPART(MONTH, CallDay)
+ORDER BY ForecastMonth;
