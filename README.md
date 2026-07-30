@@ -479,10 +479,8 @@ ORDER BY tc.PctThreshold, tc.CreditThreshold;
 
 
 -- ============================================================================
--- 6-MONTH FORECAST: MONTHLY ROLLUP
--- Shows avg active customers, total forecasted calls, and the rate per 1,000
--- as separate columns, month by month -- this is what actually shows the
--- seasonality ratio Jonathan asked to see
+-- 6-MONTH FORECAST (FULL CALENDAR MONTHS): Aug 2026 - Jan 2027
+-- Fixes the partial-month issue by starting at Aug 1 instead of "today"
 -- ============================================================================
 
 WITH BaselineCount AS (
@@ -591,9 +589,10 @@ Numbers AS (
     FROM Digits d1 CROSS JOIN Digits d2 CROSS JOIN Digits d3
 ),
 ForecastCalendar AS (
-    SELECT DATEADD(DAY, OffsetDay, CAST(GETDATE() AS DATE)) AS CallDay
+    -- Fixed 6 full calendar months: Aug 1, 2026 - Jan 31, 2027 (184 days)
+    SELECT DATEADD(DAY, OffsetDay, CAST('2026-08-01' AS DATE)) AS CallDay
     FROM Numbers
-    WHERE OffsetDay < 180
+    WHERE OffsetDay < 184
 ),
 
 ForecastActive AS (
@@ -618,7 +617,7 @@ DailyForecast AS (
     JOIN SeasonalIndex si ON si.CallMonth = MONTH(fa.CallDay)
 )
 
--- FINAL OUTPUT: monthly rollup, active customers and call volume shown separately
+-- FINAL OUTPUT: 6 full calendar months, active customers and call volume shown separately
 SELECT
     FORMAT(CallDay, 'yyyy-MM') AS ForecastMonth,
     DATENAME(MONTH, CallDay) AS MonthName,
@@ -629,3 +628,4 @@ SELECT
 FROM DailyForecast
 GROUP BY FORMAT(CallDay, 'yyyy-MM'), DATENAME(MONTH, CallDay), DATEPART(MONTH, CallDay)
 ORDER BY ForecastMonth;
+
