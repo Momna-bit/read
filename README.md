@@ -333,3 +333,54 @@ FROM RemovalCalls rc
 JOIN Care_CallAI cai ON cai.ContactID = rc.ContactID
 WHERE rc.rn = 1
 ORDER BY NEWID();  -- random sample
+
+-- ============================================================================
+-- WHY: The random sample of real call summaries showed customers/agents use
+-- different language than we guessed, AND revealed a major driver category
+-- (card expired/lost/changed) that wasn't on the original list at all. This
+-- rebuilds the search using the ACTUAL phrases seen in real calls.
+-- ============================================================================
+
+WITH AgentRemovals AS (
+    SELECT A.AccountID, A.Created AS RemovalDate, b.CustID
+    FROM dbo.vw_Salesforce_Autopay A
+    JOIN dbo.vw_Salesforce_BillingAccount b ON b.ID = A.AccountID
+    WHERE A.Remove = 1
+        AND A.CreatedBy <> '0054T000001dhK1QAI'
+        AND A.Created >= DATEADD(MONTH, -6, CAST(GETDATE() AS DATE))
+),
+RemovalCalls AS (
+    SELECT ar.AccountID, ar.RemovalDate, ivr.ContactID,
+        ROW_NUMBER() OVER (PARTITION BY ar.AccountID, ar.RemovalDate ORDER BY ABS(DATEDIFF(SECOND, ar.RemovalDate, ivr.CallDate))) AS rn
+    FROM AgentRemovals ar
+    JOIN dbo.IVR ivr ON ivr.AccountNumber = ar.CustID
+        AND CAST(ivr.CallDate AS DATE) = CAST(ar.RemovalDate AS DATE)
+        AND ivr.AgentTalkTime > 0
+),
+MatchedCallText AS (
+    SELECT rc.AccountID, cai.[call.summary] AS Summary
+    FROM RemovalCalls rc
+    JOIN Care_CallAI cai ON cai.ContactID = rc.ContactID
+    WHERE rc.rn = 1
+)
+
+SELECT
+    COUNT(*) AS TotalMatchedCalls,
+    SUM(CASE WHEN Summary LIKE '%before the due date%' OR Summary LIKE '%earlier than expected%' 
+        OR Summary LIKE '%early autopay%' OR Summary LIKE '%withdrawn earlier%' OR Summary LIKE '%before that date%' 
+        THEN 1 ELSE 0 END) AS DraftTimingMismatch,
+    SUM(CASE WHEN Summary LIKE '%expired card%' OR Summary LIKE '%lost%card%' OR Summary LIKE '%cancel%card%' 
+        OR Summary LIKE '%new card%' OR Summary LIKE '%update%card%' OR Summary LIKE '%update%payment method%'
+        THEN 1 ELSE 0 END) AS CardChangeIssue,
+    SUM(CASE WHEN Summary LIKE '%overdraft%' OR Summary LIKE '%insufficient funds%' OR Summary LIKE '%lack of funds%'
+        THEN 1 ELSE 0 END) AS OverdraftAvoidance,
+    SUM(CASE WHEN Summary LIKE '%double payment%' OR Summary LIKE '%duplicate payment%' OR Summary LIKE '%duplicate $%'
+        THEN 1 ELSE 0 END) AS DuplicatePaymentError,
+    SUM(CASE WHEN Summary LIKE '%activation fee%' OR Summary LIKE '%surprise fee%' OR Summary LIKE '%unexpected charge%'
+        THEN 1 ELSE 0 END) AS FeeShock,
+    SUM(CASE WHEN Summary LIKE '%never agreed%' OR Summary LIKE '%did not authorize%' OR Summary LIKE '%without consent%'
+        OR Summary LIKE '%never enrolled%' OR Summary LIKE '%don''t remember%enroll%'
+        THEN 1 ELSE 0 END) AS ConsentDispute
+FROM MatchedCallText;
+
+
