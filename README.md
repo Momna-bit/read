@@ -462,7 +462,7 @@ ReEnrollCheck AS (
         CASE WHEN EXISTS (
             SELECT 1 FROM dbo.vw_Salesforce_Autopay a2
             WHERE a2.AccountID = ccr.AccountID
-                AND a2.Add = 1
+                AND a2.[Add] = 1
                 AND a2.Created > ccr.RemovalDate
                 AND a2.Created <= DATEADD(DAY, 60, ccr.RemovalDate)
         ) THEN 1 ELSE 0 END AS ReEnrolledWithin60Days
@@ -474,4 +474,3 @@ SELECT
     SUM(ReEnrolledWithin60Days) AS ReEnrolledCount,
     ROUND(100.0 * SUM(ReEnrolledWithin60Days) / COUNT(*), 1) AS PctReEnrolledWithin60Days
 FROM ReEnrollCheck;
-
