@@ -40,3 +40,9 @@ npm list react-dom
 npm run dev
 
 
+SELECT COLUMN_NAME, DATA_TYPE
+FROM INFORMATION_SCHEMA.COLUMNS
+WHERE TABLE_NAME = 'vw_Salesforce_Autopay'
+ORDER BY ORDINAL_POSITION;
+
+
