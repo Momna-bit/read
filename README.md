@@ -67,3 +67,14 @@ GROUP BY CASE
 ORDER BY RemovalCount DESC;
 
 
+-- WHY: Jonathan's own exploration shows every removal tied to a named agent,
+-- not "Integration API." Before concluding portal removals don't exist in
+-- this data, let's check every distinct CreatedBy value directly.
+
+SELECT DISTINCT CreatedBy
+FROM vw_Salesforce_Autopay
+WHERE Remove = 1
+ORDER BY CreatedBy;
+
+
+
