@@ -384,3 +384,36 @@ SELECT
 FROM MatchedCallText;
 
 
+
+-- WHY: The draft-timing count (25) looks far too low compared to the sample
+-- evidence. Let's pull the actual matching rows to confirm the logic works
+-- correctly before trusting any of these smaller numbers.
+
+WITH AgentRemovals AS (
+    SELECT A.AccountID, A.Created AS RemovalDate, b.CustID
+    FROM dbo.vw_Salesforce_Autopay A
+    JOIN dbo.vw_Salesforce_BillingAccount b ON b.ID = A.AccountID
+    WHERE A.Remove = 1
+        AND A.CreatedBy <> '0054T000001dhK1QAI'
+        AND A.Created >= DATEADD(MONTH, -6, CAST(GETDATE() AS DATE))
+),
+RemovalCalls AS (
+    SELECT ar.AccountID, ar.RemovalDate, ivr.ContactID,
+        ROW_NUMBER() OVER (PARTITION BY ar.AccountID, ar.RemovalDate ORDER BY ABS(DATEDIFF(SECOND, ar.RemovalDate, ivr.CallDate))) AS rn
+    FROM AgentRemovals ar
+    JOIN dbo.IVR ivr ON ivr.AccountNumber = ar.CustID
+        AND CAST(ivr.CallDate AS DATE) = CAST(ar.RemovalDate AS DATE)
+        AND ivr.AgentTalkTime > 0
+)
+
+SELECT TOP 15 cai.[call.summary]
+FROM RemovalCalls rc
+JOIN Care_CallAI cai ON cai.ContactID = rc.ContactID
+WHERE rc.rn = 1
+    AND (cai.[call.summary] LIKE '%before the due date%' 
+        OR cai.[call.summary] LIKE '%earlier than expected%'
+        OR cai.[call.summary] LIKE '%early autopay%' 
+        OR cai.[call.summary] LIKE '%withdrawn earlier%' 
+        OR cai.[call.summary] LIKE '%before that date%');
+
+
