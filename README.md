@@ -114,3 +114,16 @@ GROUP BY CASE
         ELSE 'Agent'
     END
 ORDER BY RemovalCount DESC;
+
+
+-- WHY: To check whether portal-channel autopay removals follow the same
+-- "close to bill due date" timing pattern already found for removals overall,
+-- we need to connect the Salesforce AccountID on each removal to the
+-- customer's actual billing record (cust_id) in iSigma. Let's confirm
+-- that join path exists before building the timing analysis.
+
+SELECT COLUMN_NAME, DATA_TYPE
+FROM INFORMATION_SCHEMA.COLUMNS
+WHERE TABLE_NAME = 'vw_Salesforce_BillingAccount'
+ORDER BY ORDINAL_POSITION;
+
