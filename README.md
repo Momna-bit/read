@@ -127,3 +127,64 @@ FROM INFORMATION_SCHEMA.COLUMNS
 WHERE TABLE_NAME = 'vw_Salesforce_BillingAccount'
 ORDER BY ORDINAL_POSITION;
 
+
+
+-- ============================================================================
+-- WHY: We found 78% of autopay removals happen silently via the portal, with
+-- no call to explain the reason. Since we can't ask "why" for those, this
+-- checks something we CAN measure without call data: does the same timing
+-- pattern (removals clustering near the bill due date) hold for portal
+-- removals the same way it did for removals overall?
+--
+-- HOW: For each removal, find that customer's closest bill due date (before
+-- or after the removal), then check what share of removals in each channel
+-- happened within two weeks of that due date.
+-- ============================================================================
+
+WITH Removals AS (
+    SELECT
+        A.AccountID,
+        A.Created AS RemovalDate,
+        CASE WHEN A.CreatedBy = '0054T000001dhK1QAI' THEN 'Portal/Website' ELSE 'Agent' END AS RemovalChannel
+    FROM dbo.vw_Salesforce_Autopay A
+    WHERE A.Remove = 1
+        AND A.Created >= DATEADD(MONTH, -6, CAST(GETDATE() AS DATE))
+),
+
+RemovalsWithCustID AS (
+    SELECT
+        r.AccountID,
+        r.RemovalDate,
+        r.RemovalChannel,
+        b.CustID
+    FROM Removals r
+    JOIN dbo.vw_Salesforce_BillingAccount b ON b.ID = r.AccountID
+),
+
+RankedBills AS (
+    -- For each removal, rank that customer's bills by closeness to the removal date
+    SELECT
+        rc.AccountID,
+        rc.RemovalDate,
+        rc.RemovalChannel,
+        bm.Due_Date,
+        ABS(DATEDIFF(DAY, rc.RemovalDate, bm.Due_Date)) AS DaysFromDueDate,
+        ROW_NUMBER() OVER (
+            PARTITION BY rc.AccountID, rc.RemovalDate 
+            ORDER BY ABS(DATEDIFF(DAY, rc.RemovalDate, bm.Due_Date))
+        ) AS rn
+    FROM RemovalsWithCustID rc
+    JOIN iSigma_Bill_Master bm ON bm.cust_id = rc.CustID
+)
+
+-- FINAL OUTPUT: % of removals within 2 weeks of their closest bill due date, by channel
+SELECT
+    RemovalChannel,
+    COUNT(*) AS TotalRemovals,
+    SUM(CASE WHEN DaysFromDueDate <= 14 THEN 1 ELSE 0 END) AS WithinTwoWeeksOfDueDate,
+    ROUND(100.0 * SUM(CASE WHEN DaysFromDueDate <= 14 THEN 1 ELSE 0 END) / COUNT(*), 1) AS PctWithinTwoWeeks
+FROM RankedBills
+WHERE rn = 1
+GROUP BY RemovalChannel
+ORDER BY RemovalChannel;
+
