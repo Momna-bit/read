@@ -244,3 +244,62 @@ WHERE rn = 1
 GROUP BY RemovalChannel
 ORDER BY RemovalChannel;
 
+
+
+-- ============================================================================
+-- WHY: Now that we know timing (near a bill due date) applies to both
+-- channels, this checks WHY specifically for Agent-channel removals, since
+-- those are the only ones with an actual call we can read. We're searching
+-- what the customer/agent actually said for language matching each of the
+-- three drivers Jonathan flagged: draft-date timing, fee shock, and
+-- enrollment-without-consent.
+--
+-- HOW: For each Agent-channel removal, find the call that happened on the
+-- same day (the call that presumably led to the removal), then search the
+-- call summary text for keywords tied to each driver.
+-- ============================================================================
+
+WITH AgentRemovals AS (
+    SELECT
+        A.AccountID,
+        A.Created AS RemovalDate,
+        b.CustID
+    FROM dbo.vw_Salesforce_Autopay A
+    JOIN dbo.vw_Salesforce_BillingAccount b ON b.ID = A.AccountID
+    WHERE A.Remove = 1
+        AND A.CreatedBy <> '0054T000001dhK1QAI'  -- Agent channel only
+        AND A.Created >= DATEADD(MONTH, -6, CAST(GETDATE() AS DATE))
+),
+
+RemovalCalls AS (
+    -- Match each removal to a same-day call on that customer's account
+    SELECT
+        ar.AccountID,
+        ar.RemovalDate,
+        ivr.ContactID,
+        ROW_NUMBER() OVER (
+            PARTITION BY ar.AccountID, ar.RemovalDate 
+            ORDER BY ABS(DATEDIFF(SECOND, ar.RemovalDate, ivr.CallDate))
+        ) AS rn
+    FROM AgentRemovals ar
+    JOIN dbo.IVR ivr 
+        ON ivr.AccountNumber = ar.CustID
+        AND CAST(ivr.CallDate AS DATE) = CAST(ar.RemovalDate AS DATE)
+        AND ivr.AgentTalkTime > 0
+),
+
+MatchedCallText AS (
+    SELECT
+        rc.AccountID,
+        cai.[call.summary]
+    FROM RemovalCalls rc
+    JOIN Care_CallAI cai ON cai.ContactID = rc.ContactID
+    WHERE rc.rn = 1
+)
+
+SELECT
+    COUNT(*) AS TotalMatchedCalls,
+    SUM(CASE WHEN [call.summary] LIKE '%draft date%' OR [call.summary] LIKE '%payment date%' OR [call.summary] LIKE '%due date%' OR [call.summary] LIKE '%mid-month%' OR [call.summary] LIKE '%1st%' THEN 1 ELSE 0 END) AS DraftDateTimingMentions,
+    SUM(CASE WHEN [call.summary] LIKE '%activation fee%' OR [call.summary] LIKE '%surprise fee%' OR [call.summary] LIKE '%first bill%' OR [call.summary] LIKE '%partial bill%' THEN 1 ELSE 0 END) AS FeeShockMentions,
+    SUM(CASE WHEN [call.summary] LIKE '%never agreed%' OR [call.summary] LIKE '%did not authorize%' OR [call.summary] LIKE '%without consent%' OR [call.summary] LIKE '%never signed up%' OR [call.summary] LIKE '%never enrolled%' THEN 1 ELSE 0 END) AS ConsentDisputeMentions
+FROM MatchedCallText;
