@@ -188,3 +188,59 @@ WHERE rn = 1
 GROUP BY RemovalChannel
 ORDER BY RemovalChannel;
 
+
+-- ============================================================================
+-- WHY: The first version measured distance to the NEAREST due date in either
+-- direction, which is nearly always small just because bills recur monthly —
+-- that's a math artifact, not a real signal. This version only looks FORWARD,
+-- to the next bill still coming due after the removal, matching the original
+-- "~66% of removals happen within two weeks of the next due date" methodology.
+-- ============================================================================
+
+WITH Removals AS (
+    SELECT
+        A.AccountID,
+        A.Created AS RemovalDate,
+        CASE WHEN A.CreatedBy = '0054T000001dhK1QAI' THEN 'Portal/Website' ELSE 'Agent' END AS RemovalChannel
+    FROM dbo.vw_Salesforce_Autopay A
+    WHERE A.Remove = 1
+        AND A.Created >= DATEADD(MONTH, -6, CAST(GETDATE() AS DATE))
+),
+
+RemovalsWithCustID AS (
+    SELECT
+        r.AccountID,
+        r.RemovalDate,
+        r.RemovalChannel,
+        b.CustID
+    FROM Removals r
+    JOIN dbo.vw_Salesforce_BillingAccount b ON b.ID = r.AccountID
+),
+
+NextBillOnly AS (
+    -- Only bills due ON OR AFTER the removal date -- forward-looking only
+    SELECT
+        rc.AccountID,
+        rc.RemovalDate,
+        rc.RemovalChannel,
+        bm.Due_Date,
+        DATEDIFF(DAY, rc.RemovalDate, bm.Due_Date) AS DaysUntilDue,
+        ROW_NUMBER() OVER (
+            PARTITION BY rc.AccountID, rc.RemovalDate 
+            ORDER BY bm.Due_Date ASC
+        ) AS rn
+    FROM RemovalsWithCustID rc
+    JOIN iSigma_Bill_Master bm ON bm.cust_id = rc.CustID
+    WHERE bm.Due_Date >= rc.RemovalDate
+)
+
+SELECT
+    RemovalChannel,
+    COUNT(*) AS TotalRemovals,
+    SUM(CASE WHEN DaysUntilDue <= 14 THEN 1 ELSE 0 END) AS WithinTwoWeeksOfNextDueDate,
+    ROUND(100.0 * SUM(CASE WHEN DaysUntilDue <= 14 THEN 1 ELSE 0 END) / COUNT(*), 1) AS PctWithinTwoWeeks
+FROM NextBillOnly
+WHERE rn = 1
+GROUP BY RemovalChannel
+ORDER BY RemovalChannel;
+
