@@ -46,3 +46,24 @@ WHERE TABLE_NAME = 'vw_Salesforce_Autopay'
 ORDER BY ORDINAL_POSITION;
 
 
+-- WHY: Jonathan showed that the CreatedBy field on autopay actions tells us
+-- the channel (an agent's ID = agent-initiated removal, "Integration API" =
+-- customer did it themselves via the website/portal). This confirms that
+-- split and gives us the actual volume by channel, over the last 6 months.
+
+SELECT
+    CASE 
+        WHEN CreatedBy = 'Integration API' THEN 'Portal/Website'
+        ELSE 'Agent'
+    END AS RemovalChannel,
+    COUNT(*) AS RemovalCount
+FROM vw_Salesforce_Autopay
+WHERE Remove = 1
+    AND Created >= DATEADD(MONTH, -6, CAST(GETDATE() AS DATE))
+GROUP BY CASE 
+        WHEN CreatedBy = 'Integration API' THEN 'Portal/Website'
+        ELSE 'Agent'
+    END
+ORDER BY RemovalCount DESC;
+
+
