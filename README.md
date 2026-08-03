@@ -77,4 +77,22 @@ WHERE Remove = 1
 ORDER BY CreatedBy;
 
 
+-- WHY: CreatedBy only stores User IDs, not channel labels directly.
+-- The "Integration API" distinction Jonathan described must live in the
+-- linked Salesforce User's name. Let's check if any distinct user name
+-- looks like a system/portal account rather than a real agent.
+
+SELECT DISTINCT U.Name, U.ID
+FROM dbo.vw_Salesforce_Autopay A
+INNER JOIN dbo.vw_Salesforce_User U ON U.ID = A.CreatedBy
+WHERE A.Remove = 1
+    AND (
+        U.Name LIKE '%API%' 
+        OR U.Name LIKE '%Integration%' 
+        OR U.Name LIKE '%System%' 
+        OR U.Name LIKE '%Portal%'
+        OR U.Name LIKE '%Website%'
+    );
+
+
 
