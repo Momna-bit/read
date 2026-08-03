@@ -303,3 +303,33 @@ SELECT
     SUM(CASE WHEN [call.summary] LIKE '%activation fee%' OR [call.summary] LIKE '%surprise fee%' OR [call.summary] LIKE '%first bill%' OR [call.summary] LIKE '%partial bill%' THEN 1 ELSE 0 END) AS FeeShockMentions,
     SUM(CASE WHEN [call.summary] LIKE '%never agreed%' OR [call.summary] LIKE '%did not authorize%' OR [call.summary] LIKE '%without consent%' OR [call.summary] LIKE '%never signed up%' OR [call.summary] LIKE '%never enrolled%' THEN 1 ELSE 0 END) AS ConsentDisputeMentions
 FROM MatchedCallText;
+
+
+
+-- WHY: The keyword search likely missed real mentions of fee shock and
+-- consent disputes because the guessed phrases don't match how people
+-- actually talk. Let's read a sample of real call summaries to find the
+-- actual language before refining the search.
+
+WITH AgentRemovals AS (
+    SELECT A.AccountID, A.Created AS RemovalDate, b.CustID
+    FROM dbo.vw_Salesforce_Autopay A
+    JOIN dbo.vw_Salesforce_BillingAccount b ON b.ID = A.AccountID
+    WHERE A.Remove = 1
+        AND A.CreatedBy <> '0054T000001dhK1QAI'
+        AND A.Created >= DATEADD(MONTH, -6, CAST(GETDATE() AS DATE))
+),
+RemovalCalls AS (
+    SELECT ar.AccountID, ar.RemovalDate, ivr.ContactID,
+        ROW_NUMBER() OVER (PARTITION BY ar.AccountID, ar.RemovalDate ORDER BY ABS(DATEDIFF(SECOND, ar.RemovalDate, ivr.CallDate))) AS rn
+    FROM AgentRemovals ar
+    JOIN dbo.IVR ivr ON ivr.AccountNumber = ar.CustID
+        AND CAST(ivr.CallDate AS DATE) = CAST(ar.RemovalDate AS DATE)
+        AND ivr.AgentTalkTime > 0
+)
+
+SELECT TOP 30 cai.[call.summary]
+FROM RemovalCalls rc
+JOIN Care_CallAI cai ON cai.ContactID = rc.ContactID
+WHERE rc.rn = 1
+ORDER BY NEWID();  -- random sample
