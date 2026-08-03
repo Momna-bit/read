@@ -417,3 +417,61 @@ WHERE rc.rn = 1
         OR cai.[call.summary] LIKE '%before that date%');
 
 
+
+
+-- ============================================================================
+-- WHY: Card/payment-method changes are the biggest driver we found (38.1%),
+-- but that number alone doesn't tell us if it's a real problem. If most of
+-- these customers quietly turn autopay back on once they update their new
+-- card, this is just temporary friction, not real churn. If they don't come
+-- back, it's a genuine retention issue worth fixing.
+--
+-- HOW: For each card-change-driven removal, check whether that same account
+-- has any "Add" (re-enrollment) action within 60 days afterward.
+-- ============================================================================
+
+WITH AgentRemovals AS (
+    SELECT A.AccountID, A.Created AS RemovalDate, b.CustID
+    FROM dbo.vw_Salesforce_Autopay A
+    JOIN dbo.vw_Salesforce_BillingAccount b ON b.ID = A.AccountID
+    WHERE A.Remove = 1
+        AND A.CreatedBy <> '0054T000001dhK1QAI'
+        AND A.Created >= DATEADD(MONTH, -6, CAST(GETDATE() AS DATE))
+),
+RemovalCalls AS (
+    SELECT ar.AccountID, ar.RemovalDate, ivr.ContactID,
+        ROW_NUMBER() OVER (PARTITION BY ar.AccountID, ar.RemovalDate ORDER BY ABS(DATEDIFF(SECOND, ar.RemovalDate, ivr.CallDate))) AS rn
+    FROM AgentRemovals ar
+    JOIN dbo.IVR ivr ON ivr.AccountNumber = ar.CustID
+        AND CAST(ivr.CallDate AS DATE) = CAST(ar.RemovalDate AS DATE)
+        AND ivr.AgentTalkTime > 0
+),
+CardChangeRemovals AS (
+    SELECT rc.AccountID, rc.RemovalDate
+    FROM RemovalCalls rc
+    JOIN Care_CallAI cai ON cai.ContactID = rc.ContactID
+    WHERE rc.rn = 1
+        AND (cai.[call.summary] LIKE '%expired card%' OR cai.[call.summary] LIKE '%lost%card%' 
+            OR cai.[call.summary] LIKE '%cancel%card%' OR cai.[call.summary] LIKE '%new card%' 
+            OR cai.[call.summary] LIKE '%update%card%' OR cai.[call.summary] LIKE '%update%payment method%')
+),
+ReEnrollCheck AS (
+    SELECT
+        ccr.AccountID,
+        ccr.RemovalDate,
+        CASE WHEN EXISTS (
+            SELECT 1 FROM dbo.vw_Salesforce_Autopay a2
+            WHERE a2.AccountID = ccr.AccountID
+                AND a2.Add = 1
+                AND a2.Created > ccr.RemovalDate
+                AND a2.Created <= DATEADD(DAY, 60, ccr.RemovalDate)
+        ) THEN 1 ELSE 0 END AS ReEnrolledWithin60Days
+    FROM CardChangeRemovals ccr
+)
+
+SELECT
+    COUNT(*) AS TotalCardChangeRemovals,
+    SUM(ReEnrolledWithin60Days) AS ReEnrolledCount,
+    ROUND(100.0 * SUM(ReEnrolledWithin60Days) / COUNT(*), 1) AS PctReEnrolledWithin60Days
+FROM ReEnrollCheck;
+
