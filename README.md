@@ -96,3 +96,21 @@ WHERE A.Remove = 1
 
 
 
+-- WHY: We now know "Integration API" (portal/website channel) has a specific
+-- User ID: 0054T000001dhK1QAI. This query does the real portal-vs-agent
+-- split, joining through the User table correctly this time.
+
+SELECT
+    CASE 
+        WHEN A.CreatedBy = '0054T000001dhK1QAI' THEN 'Portal/Website'
+        ELSE 'Agent'
+    END AS RemovalChannel,
+    COUNT(*) AS RemovalCount
+FROM dbo.vw_Salesforce_Autopay A
+WHERE A.Remove = 1
+    AND A.Created >= DATEADD(MONTH, -6, CAST(GETDATE() AS DATE))
+GROUP BY CASE 
+        WHEN A.CreatedBy = '0054T000001dhK1QAI' THEN 'Portal/Website'
+        ELSE 'Agent'
+    END
+ORDER BY RemovalCount DESC;
