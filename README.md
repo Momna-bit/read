@@ -401,3 +401,62 @@ SELECT
 FROM Categorized
 GROUP BY MatchCategory
 ORDER BY MatchCategory;
+
+
+-- ============================================================================
+-- WHY: We found the real cause of the forecast mismatch -- CreditScore NULL
+-- was being silently dropped from every tier, on top of the CreditScore = 0
+-- customers we already excluded. This rebuilds the tier rates treating NULL
+-- and 0 the same way (both mean "no usable score"), so the tier population
+-- properly matches the customers actually generating the calls.
+-- ============================================================================
+
+WITH TierCustomers AS (
+    SELECT
+        cust_id,
+        CASE
+            WHEN CreditScore IS NULL OR CreditScore = 0 THEN NULL  -- excluded, not a real tier
+            WHEN CreditScore <= 500 THEN 'Low (\u2264500)'
+            WHEN CreditScore BETWEEN 501 AND 700 THEN 'Medium (501-700)'
+            WHEN CreditScore > 700 THEN 'High (700+)'
+        END AS CreditTier
+    FROM iSigma_Customer_Master
+    WHERE Market = 'Texas' AND CustomerType = 'Residential'
+        AND (FlowEnd IS NULL OR FlowEnd >= DATEADD(DAY, -180, CAST(GETDATE() AS DATE)))
+),
+
+TierCustomersClean AS (
+    SELECT * FROM TierCustomers WHERE CreditTier IS NOT NULL
+),
+
+TierCalls AS (
+    SELECT
+        tc.CreditTier,
+        COUNT(ivr.ContactID) AS TotalCalls
+    FROM TierCustomersClean tc
+    LEFT JOIN dbo.IVR ivr 
+        ON ivr.AccountNumber = tc.cust_id
+        AND ivr.Department = 'Care'
+        AND ivr.CallType IN ('Inbound', 'Transfer')
+        AND ivr.AgentTalkTime > 0
+        AND ivr.CallDate >= DATEADD(DAY, -180, CAST(GETDATE() AS DATE))
+    GROUP BY tc.CreditTier
+),
+
+TierCounts AS (
+    SELECT CreditTier, COUNT(*) AS CustomerCount
+    FROM TierCustomersClean
+    GROUP BY CreditTier
+)
+
+SELECT
+    tc.CreditTier,
+    tn.CustomerCount,
+    tc.TotalCalls,
+    ROUND(CAST(tc.TotalCalls AS FLOAT) / tn.CustomerCount, 4) AS AvgCallsPerCustomer,
+    ROUND(CAST(tc.TotalCalls AS FLOAT) / tn.CustomerCount / 180.0 * 1000, 3) AS CallsPer1000PerDay,
+    SUM(tc.TotalCalls) OVER () AS GrandTotalCalls
+FROM TierCalls tc
+JOIN TierCounts tn ON tn.CreditTier = tc.CreditTier
+ORDER BY tc.CreditTier;
+
