@@ -599,3 +599,79 @@ SELECT
 FROM DailyByGroup
 GROUP BY GROUPING SETS ((FORMAT(CallDay, 'yyyy-MM'), GroupName), (FORMAT(CallDay, 'yyyy-MM')))
 ORDER BY ForecastMonth, CreditGroup;
+
+
+
+-- ============================================================================
+-- WHY: Jonathan asked to be able to drill into any single day, not just see
+-- monthly totals. This takes the already-trusted daily total forecast and
+-- splits it into credit tiers using the validated proportions (56.9% High,
+-- 22.4% Medium, 12.9% Low, 7.8% Unknown) -- the same split validated at the
+-- monthly level, applied here at the daily grain.
+-- ============================================================================
+
+WITH BaselineCount AS (
+    SELECT COUNT(*) AS BaselineCount
+    FROM iSigma_Customer_Master
+    WHERE Market = 'Texas' AND CustomerType = 'Residential'
+        AND FlowStart < '2022-07-01'
+        AND (FlowEnd IS NULL OR FlowEnd >= '2022-07-01')
+),
+ActiveDelta AS (
+    SELECT CAST(FlowStart AS DATE) AS EventDate, 1 AS Delta
+    FROM iSigma_Customer_Master
+    WHERE Market = 'Texas' AND CustomerType = 'Residential' AND FlowStart >= '2022-07-01'
+    UNION ALL
+    SELECT CAST(DATEADD(DAY, 1, FlowEnd) AS DATE) AS EventDate, -1 AS Delta
+    FROM iSigma_Customer_Master
+    WHERE Market = 'Texas' AND CustomerType = 'Residential' AND FlowEnd >= '2022-07-01'
+),
+DailyDelta AS (SELECT EventDate, SUM(Delta) AS NetChange FROM ActiveDelta GROUP BY EventDate),
+
+RecentRates AS (
+    SELECT * FROM (VALUES
+        (1, 0.000), (2, 6.703), (3, 5.254), (4, 4.826),
+        (5, 4.279), (6, 4.668), (7, 1.875)
+    ) AS t(DayNum, RecentRatePer1000)
+),
+SeasonalIndex AS (
+    SELECT * FROM (VALUES
+        (1, 1.107), (2, 1.214), (3, 1.049), (4, 0.931), (5, 0.928), (6, 0.955),
+        (7, 1.074), (8, 1.085), (9, 1.059), (10, 0.935), (11, 0.848), (12, 0.802)
+    ) AS t(MonthNum, SeasonalIdx)
+),
+
+Digits AS (SELECT n FROM (VALUES (0),(1),(2),(3),(4),(5),(6),(7),(8),(9)) AS d(n)),
+Numbers AS (SELECT (d1.n + d2.n*10 + d3.n*100) AS OffsetDay FROM Digits d1 CROSS JOIN Digits d2 CROSS JOIN Digits d3),
+ForecastCalendar AS (
+    SELECT DATEADD(DAY, OffsetDay, CAST('2026-08-01' AS DATE)) AS CallDay
+    FROM Numbers WHERE OffsetDay < 184
+),
+
+ForecastActive AS (
+    SELECT fc.CallDay,
+        bc.BaselineCount + ISNULL((SELECT SUM(dd.NetChange) FROM DailyDelta dd WHERE dd.EventDate <= fc.CallDay), 0) AS ActiveCustomerCount
+    FROM ForecastCalendar fc CROSS JOIN BaselineCount bc
+),
+
+DailyTotal AS (
+    SELECT
+        fa.CallDay,
+        ROUND((rr.RecentRatePer1000 * si.SeasonalIdx / 1000.0) * fa.ActiveCustomerCount, 0) AS TotalForecastedCalls
+    FROM ForecastActive fa
+    JOIN RecentRates rr ON rr.DayNum = DATEPART(WEEKDAY, fa.CallDay)
+    JOIN SeasonalIndex si ON si.MonthNum = MONTH(fa.CallDay)
+)
+
+-- FINAL OUTPUT: one row per day, total plus tier breakdown -- fully drillable
+SELECT
+    CallDay,
+    DATENAME(WEEKDAY, CallDay) AS DayOfWeek,
+    FORMAT(CallDay, 'yyyy-MM') AS ForecastMonth,
+    TotalForecastedCalls,
+    ROUND(TotalForecastedCalls * 0.569, 0) AS High_700Plus,
+    ROUND(TotalForecastedCalls * 0.224, 0) AS Medium_501to700,
+    ROUND(TotalForecastedCalls * 0.129, 0) AS Low_500OrBelow,
+    ROUND(TotalForecastedCalls * 0.078, 0) AS UnknownCreditScore
+FROM DailyTotal
+ORDER BY CallDay;
