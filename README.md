@@ -230,3 +230,45 @@ GROUP BY GROUPING SETS ((ForecastMonth, CreditTier), (ForecastMonth))
 ORDER BY ForecastMonth, CreditTier;
 
 
+
+-- ============================================================================
+-- WHY: The tier-blended forecast came out at almost exactly half the original
+-- forecast, every month. This checks whether the customer-tier join is
+-- silently dropping calls -- e.g., calls from customers who don't have a
+-- clean match in the customer master table (a different account number
+-- format, a missing record, etc.) -- versus counting all calls directly.
+-- ============================================================================
+
+WITH RawCallCount AS (
+    -- Same filters as the original day-of-week rate calculation: no join at all
+    SELECT COUNT(*) AS TotalCalls
+    FROM dbo.IVR
+    WHERE Department = 'Care'
+        AND CallType IN ('Inbound', 'Transfer')
+        AND AgentTalkTime > 0
+        AND CallDate >= DATEADD(DAY, -180, CAST(GETDATE() AS DATE))
+),
+
+TierJoinedCallCount AS (
+    -- Same filters, but only counting calls that successfully joined to a
+    -- customer with a valid (non-zero) credit score
+    SELECT COUNT(*) AS TotalCalls
+    FROM dbo.IVR ivr
+    JOIN iSigma_Customer_Master cm 
+        ON cm.cust_id = ivr.AccountNumber
+        AND cm.Market = 'Texas' AND cm.CustomerType = 'Residential'
+        AND cm.CreditScore <> 0
+        AND cm.FlowEnd IS NULL
+    WHERE ivr.Department = 'Care'
+        AND ivr.CallType IN ('Inbound', 'Transfer')
+        AND ivr.AgentTalkTime > 0
+        AND ivr.CallDate >= DATEADD(DAY, -180, CAST(GETDATE() AS DATE))
+)
+
+SELECT
+    (SELECT TotalCalls FROM RawCallCount) AS RawCallCount_NoJoin,
+    (SELECT TotalCalls FROM TierJoinedCallCount) AS CallCount_JoinedToTieredCustomers,
+    ROUND(100.0 * (SELECT TotalCalls FROM TierJoinedCallCount) / (SELECT TotalCalls FROM RawCallCount), 1) AS PctCallsRetainedAfterJoin;
+
+
+
