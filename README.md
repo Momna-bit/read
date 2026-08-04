@@ -460,3 +460,44 @@ FROM TierCalls tc
 JOIN TierCounts tn ON tn.CreditTier = tc.CreditTier
 ORDER BY tc.CreditTier;
 
+
+-- WHY: The tiered forecast only ever covers customers with a valid credit
+-- score. To make the total forecast complete (not just the tiered majority),
+-- we need the same rate/count info for the "no score on file" group -- both
+-- the broader population used for the rate, and the currently-active count
+-- used for the forward projection.
+
+WITH UnknownScoreCustomers AS (
+    SELECT cust_id, FlowEnd
+    FROM iSigma_Customer_Master
+    WHERE Market = 'Texas' AND CustomerType = 'Residential'
+        AND (CreditScore IS NULL OR CreditScore = 0)
+),
+
+UnknownEverActive AS (
+    SELECT * FROM UnknownScoreCustomers
+    WHERE FlowEnd IS NULL OR FlowEnd >= DATEADD(DAY, -180, CAST(GETDATE() AS DATE))
+),
+
+UnknownCurrentlyActive AS (
+    SELECT * FROM UnknownScoreCustomers WHERE FlowEnd IS NULL
+),
+
+UnknownCalls AS (
+    SELECT COUNT(ivr.ContactID) AS TotalCalls
+    FROM UnknownEverActive u
+    LEFT JOIN dbo.IVR ivr 
+        ON ivr.AccountNumber = u.cust_id
+        AND ivr.Department = 'Care'
+        AND ivr.CallType IN ('Inbound', 'Transfer')
+        AND ivr.AgentTalkTime > 0
+        AND ivr.CallDate >= DATEADD(DAY, -180, CAST(GETDATE() AS DATE))
+)
+
+SELECT
+    (SELECT COUNT(*) FROM UnknownEverActive) AS CustomerCount_EverActive_ForRate,
+    (SELECT TotalCalls FROM UnknownCalls) AS TotalCalls,
+    ROUND(CAST((SELECT TotalCalls FROM UnknownCalls) AS FLOAT) / (SELECT COUNT(*) FROM UnknownEverActive) / 180.0 * 1000, 3) AS CallsPer1000PerDay,
+    (SELECT COUNT(*) FROM UnknownCurrentlyActive) AS CustomerCount_CurrentlyActive_ForForecast
+FROM UnknownCalls;
+
