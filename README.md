@@ -501,3 +501,10 @@ SELECT
     (SELECT COUNT(*) FROM UnknownCurrentlyActive) AS CustomerCount_CurrentlyActive_ForForecast
 FROM UnknownCalls;
 
+
+
+-- WHY: Checking if iSigma_Customer_Master has multiple rows per customer,
+-- which would explain the unexpectedly high "ever active" count.
+SELECT COUNT(*) AS TotalRows, COUNT(DISTINCT cust_id) AS UniqueCustomers
+FROM iSigma_Customer_Master
+WHERE Market = 'Texas' AND CustomerType = 'Residential';
