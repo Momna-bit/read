@@ -171,3 +171,62 @@ JOIN DayIndex di ON di.DayNum = DATEPART(WEEKDAY, fc.CallDay)
 JOIN SeasonalIndex si ON si.MonthNum = MONTH(fc.CallDay)
 CROSS JOIN TierRates tr
 ORDER BY fc.CallDay, tr.CreditTier;
+
+
+-- ============================================================================
+-- WHY: The daily/tier data is correct, but 552 rows isn't useful to look at
+-- directly. This rolls it up to one row per month per tier, plus a combined
+-- total row per month, so it's easy to read and compare against the original
+-- tier-agnostic forecast.
+-- ============================================================================
+
+WITH TierRates AS (
+    SELECT * FROM (VALUES
+        ('High (700+)', 426935, 1.723),
+        ('Medium (501-700)', 116829, 2.489),
+        ('Low (\u2264500)', 45512, 3.744)
+    ) AS t(CreditTier, TierCustomerCount, CallsPer1000PerDay)
+),
+
+DayIndex AS (
+    SELECT * FROM (VALUES
+        (1, 0.0000), (2, 1.6997), (3, 1.3323), (4, 1.2238),
+        (5, 1.0851), (6, 1.1837), (7, 0.4755)
+    ) AS t(DayNum, DayOfWeekIndex)
+),
+
+SeasonalIndex AS (
+    SELECT * FROM (VALUES
+        (1, 1.107), (2, 1.214), (3, 1.049), (4, 0.931), (5, 0.928), (6, 0.955),
+        (7, 1.074), (8, 1.085), (9, 1.059), (10, 0.935), (11, 0.848), (12, 0.802)
+    ) AS t(MonthNum, SeasonalIdx)
+),
+
+Digits AS (SELECT n FROM (VALUES (0),(1),(2),(3),(4),(5),(6),(7),(8),(9)) AS d(n)),
+Numbers AS (SELECT (d1.n + d2.n*10 + d3.n*100) AS OffsetDay FROM Digits d1 CROSS JOIN Digits d2 CROSS JOIN Digits d3),
+ForecastCalendar AS (
+    SELECT DATEADD(DAY, OffsetDay, CAST('2026-08-01' AS DATE)) AS CallDay
+    FROM Numbers WHERE OffsetDay < 184
+),
+
+DailyByTier AS (
+    SELECT
+        FORMAT(fc.CallDay, 'yyyy-MM') AS ForecastMonth,
+        tr.CreditTier,
+        tr.TierCustomerCount * (tr.CallsPer1000PerDay / 1000.0) * di.DayOfWeekIndex * si.SeasonalIdx AS ForecastedCalls
+    FROM ForecastCalendar fc
+    JOIN DayIndex di ON di.DayNum = DATEPART(WEEKDAY, fc.CallDay)
+    JOIN SeasonalIndex si ON si.MonthNum = MONTH(fc.CallDay)
+    CROSS JOIN TierRates tr
+)
+
+-- FINAL OUTPUT: one row per tier per month, plus an "All Tiers Combined" row per month
+SELECT
+    ForecastMonth,
+    ISNULL(CreditTier, 'All Tiers Combined') AS CreditTier,
+    ROUND(SUM(ForecastedCalls), 0) AS TotalForecastedCalls
+FROM DailyByTier
+GROUP BY GROUPING SETS ((ForecastMonth, CreditTier), (ForecastMonth))
+ORDER BY ForecastMonth, CreditTier;
+
+
