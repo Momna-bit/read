@@ -113,3 +113,61 @@ FROM TierCalls tc
 JOIN TierCounts tn ON tn.CreditTier = tc.CreditTier
 ORDER BY tc.CreditTier;
 
+
+
+-- ============================================================================
+-- WHY: Jonathan asked to merge the credit-tier finding into the aggregate
+-- forecast, drillable day by day and rollable up by month. This combines:
+-- (1) each tier's real observed call rate, (2) the day-of-week pattern, and
+-- (3) the seasonal pattern -- without double-counting, since the tier rate
+-- is a 180-day average and the day/season indexes are relative deviations
+-- from that average (each averages to 1.0 across the week/year).
+-- ============================================================================
+
+WITH TierRates AS (
+    SELECT * FROM (VALUES
+        ('High (700+)', 426935, 1.723),
+        ('Medium (501-700)', 116829, 2.489),
+        ('Low (\u2264500)', 45512, 3.744)
+    ) AS t(CreditTier, TierCustomerCount, CallsPer1000PerDay)
+),
+
+DayIndex AS (
+    SELECT * FROM (VALUES
+        (1, 0.0000),   -- Sunday
+        (2, 1.6997),   -- Monday
+        (3, 1.3323),   -- Tuesday
+        (4, 1.2238),   -- Wednesday
+        (5, 1.0851),   -- Thursday
+        (6, 1.1837),   -- Friday
+        (7, 0.4755)    -- Saturday
+    ) AS t(DayNum, DayOfWeekIndex)
+),
+
+SeasonalIndex AS (
+    SELECT * FROM (VALUES
+        (1, 1.107), (2, 1.214), (3, 1.049), (4, 0.931), (5, 0.928), (6, 0.955),
+        (7, 1.074), (8, 1.085), (9, 1.059), (10, 0.935), (11, 0.848), (12, 0.802)
+    ) AS t(MonthNum, SeasonalIdx)
+),
+
+Digits AS (SELECT n FROM (VALUES (0),(1),(2),(3),(4),(5),(6),(7),(8),(9)) AS d(n)),
+Numbers AS (SELECT (d1.n + d2.n*10 + d3.n*100) AS OffsetDay FROM Digits d1 CROSS JOIN Digits d2 CROSS JOIN Digits d3),
+ForecastCalendar AS (
+    SELECT DATEADD(DAY, OffsetDay, CAST('2026-08-01' AS DATE)) AS CallDay
+    FROM Numbers WHERE OffsetDay < 184
+)
+
+-- FINAL OUTPUT: daily grain, by credit tier -- roll up or filter as needed
+SELECT
+    fc.CallDay,
+    FORMAT(fc.CallDay, 'yyyy-MM') AS ForecastMonth,
+    DATENAME(WEEKDAY, fc.CallDay) AS DayOfWeek,
+    tr.CreditTier,
+    tr.TierCustomerCount,
+    ROUND(tr.TierCustomerCount * (tr.CallsPer1000PerDay / 1000.0) * di.DayOfWeekIndex * si.SeasonalIdx, 1) AS ForecastedCalls
+FROM ForecastCalendar fc
+JOIN DayIndex di ON di.DayNum = DATEPART(WEEKDAY, fc.CallDay)
+JOIN SeasonalIndex si ON si.MonthNum = MONTH(fc.CallDay)
+CROSS JOIN TierRates tr
+ORDER BY fc.CallDay, tr.CreditTier;
