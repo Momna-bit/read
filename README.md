@@ -62,3 +62,54 @@ GROUP BY CASE
         WHEN CreditScore > 700 THEN 'High (700+)'
     END
 ORDER BY CreditTier;
+
+
+-- WHY: Now that we know how many customers are in each credit tier, we need
+-- to know how often each tier actually calls, on average, over the last
+-- 180 days. This gives us a real, observed call rate per tier to blend into
+-- the aggregate forecast.
+
+WITH TierCustomers AS (
+    SELECT
+        cust_id,
+        CASE
+            WHEN CreditScore <= 500 THEN 'Low (\u2264500)'
+            WHEN CreditScore BETWEEN 501 AND 700 THEN 'Medium (501-700)'
+            WHEN CreditScore > 700 THEN 'High (700+)'
+        END AS CreditTier
+    FROM iSigma_Customer_Master
+    WHERE Market = 'Texas' AND CustomerType = 'Residential'
+        AND CreditScore <> 0
+        AND FlowEnd IS NULL
+),
+
+TierCalls AS (
+    SELECT
+        tc.CreditTier,
+        COUNT(ivr.ContactID) AS TotalCalls
+    FROM TierCustomers tc
+    LEFT JOIN dbo.IVR ivr 
+        ON ivr.AccountNumber = tc.cust_id
+        AND ivr.Department = 'Care'
+        AND ivr.CallType IN ('Inbound', 'Transfer')
+        AND ivr.AgentTalkTime > 0
+        AND ivr.CallDate >= DATEADD(DAY, -180, CAST(GETDATE() AS DATE))
+    GROUP BY tc.CreditTier
+),
+
+TierCounts AS (
+    SELECT CreditTier, COUNT(*) AS CustomerCount
+    FROM TierCustomers
+    GROUP BY CreditTier
+)
+
+SELECT
+    tc.CreditTier,
+    tn.CustomerCount,
+    tc.TotalCalls,
+    ROUND(CAST(tc.TotalCalls AS FLOAT) / tn.CustomerCount, 4) AS AvgCallsPerCustomer,
+    ROUND(CAST(tc.TotalCalls AS FLOAT) / tn.CustomerCount / 180.0 * 1000, 3) AS CallsPer1000PerDay
+FROM TierCalls tc
+JOIN TierCounts tn ON tn.CreditTier = tc.CreditTier
+ORDER BY tc.CreditTier;
+
