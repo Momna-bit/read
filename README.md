@@ -272,3 +272,58 @@ SELECT
 
 
 
+-- ============================================================================
+-- WHY: The tier call rate was calculated using only customers active TODAY,
+-- but the 180-day call count includes customers who've since churned. This
+-- recalculates the rate using anyone who was a valid tiered customer at any
+-- point during the 180-day window (whether or not they're still with us
+-- today), which should match the raw call count much more closely.
+-- ============================================================================
+
+WITH TierCustomers AS (
+    SELECT
+        cust_id,
+        CASE
+            WHEN CreditScore <= 500 THEN 'Low (\u2264500)'
+            WHEN CreditScore BETWEEN 501 AND 700 THEN 'Medium (501-700)'
+            WHEN CreditScore > 700 THEN 'High (700+)'
+        END AS CreditTier
+    FROM iSigma_Customer_Master
+    WHERE Market = 'Texas' AND CustomerType = 'Residential'
+        AND CreditScore <> 0
+        -- Was a customer at some point during the last 180 days,
+        -- regardless of whether they're still active today:
+        AND FlowStart <= CAST(GETDATE() AS DATE)
+        AND (FlowEnd IS NULL OR FlowEnd >= DATEADD(DAY, -180, CAST(GETDATE() AS DATE)))
+),
+
+TierCalls AS (
+    SELECT
+        tc.CreditTier,
+        COUNT(ivr.ContactID) AS TotalCalls
+    FROM TierCustomers tc
+    LEFT JOIN dbo.IVR ivr 
+        ON ivr.AccountNumber = tc.cust_id
+        AND ivr.Department = 'Care'
+        AND ivr.CallType IN ('Inbound', 'Transfer')
+        AND ivr.AgentTalkTime > 0
+        AND ivr.CallDate >= DATEADD(DAY, -180, CAST(GETDATE() AS DATE))
+    GROUP BY tc.CreditTier
+),
+
+TierCounts AS (
+    SELECT CreditTier, COUNT(*) AS CustomerCount
+    FROM TierCustomers
+    GROUP BY CreditTier
+)
+
+SELECT
+    tc.CreditTier,
+    tn.CustomerCount AS CustomersEverActiveInWindow,
+    tc.TotalCalls,
+    ROUND(CAST(tc.TotalCalls AS FLOAT) / tn.CustomerCount, 4) AS AvgCallsPerCustomer,
+    ROUND(CAST(tc.TotalCalls AS FLOAT) / tn.CustomerCount / 180.0 * 1000, 3) AS CallsPer1000PerDay,
+    SUM(tc.TotalCalls) OVER () AS GrandTotalCalls
+FROM TierCalls tc
+JOIN TierCounts tn ON tn.CreditTier = tc.CreditTier
+ORDER BY tc.CreditTier;
