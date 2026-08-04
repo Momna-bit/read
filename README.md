@@ -508,3 +508,94 @@ FROM UnknownCalls;
 SELECT COUNT(*) AS TotalRows, COUNT(DISTINCT cust_id) AS UniqueCustomers
 FROM iSigma_Customer_Master
 WHERE Market = 'Texas' AND CustomerType = 'Residential';
+
+
+
+-- ============================================================================
+-- WHY: This is the final combined forecast Jonathan asked for -- day-by-day,
+-- broken out by credit tier, rolled up monthly. It uses validated tier rates
+-- for the ~589,276 customers we can reliably classify (High/Medium/Low), and
+-- a residual "Unknown" group (49,584 = 638,860 total minus tiered total) for
+-- customers whose credit tier we can't trust, using the original overall
+-- day-of-week rates for that group since we can't tier them.
+-- ============================================================================
+
+WITH TierRates AS (
+    SELECT * FROM (VALUES
+        ('High (700+)', 426935, 1.914),
+        ('Medium (501-700)', 116829, 2.748),
+        ('Low (\u2264500)', 45512, 4.075)
+    ) AS t(CreditTier, TierCustomerCount, CallsPer1000PerDay)
+),
+
+UnknownGroup AS (
+    SELECT 49584 AS UnknownCustomerCount
+),
+
+RecentRatesByDay AS (
+    -- Original overall day-of-week rates, used directly for the Unknown group
+    SELECT * FROM (VALUES
+        (1, 0.000),   -- Sunday
+        (2, 6.703),   -- Monday
+        (3, 5.254),   -- Tuesday
+        (4, 4.826),   -- Wednesday
+        (5, 4.279),   -- Thursday
+        (6, 4.668),   -- Friday
+        (7, 1.875)    -- Saturday
+    ) AS t(DayNum, RecentRatePer1000)
+),
+
+DayIndex AS (
+    -- Relative day-of-week index (avg = 1), used to scale the TIER rates
+    SELECT * FROM (VALUES
+        (1, 0.0000), (2, 1.6997), (3, 1.3323), (4, 1.2238),
+        (5, 1.0851), (6, 1.1837), (7, 0.4755)
+    ) AS t(DayNum, DayOfWeekIndex)
+),
+
+SeasonalIndex AS (
+    SELECT * FROM (VALUES
+        (1, 1.107), (2, 1.214), (3, 1.049), (4, 0.931), (5, 0.928), (6, 0.955),
+        (7, 1.074), (8, 1.085), (9, 1.059), (10, 0.935), (11, 0.848), (12, 0.802)
+    ) AS t(MonthNum, SeasonalIdx)
+),
+
+Digits AS (SELECT n FROM (VALUES (0),(1),(2),(3),(4),(5),(6),(7),(8),(9)) AS d(n)),
+Numbers AS (SELECT (d1.n + d2.n*10 + d3.n*100) AS OffsetDay FROM Digits d1 CROSS JOIN Digits d2 CROSS JOIN Digits d3),
+ForecastCalendar AS (
+    SELECT DATEADD(DAY, OffsetDay, CAST('2026-08-01' AS DATE)) AS CallDay
+    FROM Numbers WHERE OffsetDay < 184
+),
+
+DailyByGroup AS (
+    -- Tiered groups: 180-day average rate x day-of-week index x seasonal index
+    SELECT
+        fc.CallDay,
+        tr.CreditTier AS GroupName,
+        tr.TierCustomerCount * (tr.CallsPer1000PerDay / 1000.0) * di.DayOfWeekIndex * si.SeasonalIdx AS ForecastedCalls
+    FROM ForecastCalendar fc
+    JOIN DayIndex di ON di.DayNum = DATEPART(WEEKDAY, fc.CallDay)
+    JOIN SeasonalIndex si ON si.MonthNum = MONTH(fc.CallDay)
+    CROSS JOIN TierRates tr
+
+    UNION ALL
+
+    -- Unknown group: original day-specific rate x seasonal index (no separate day-index needed)
+    SELECT
+        fc.CallDay,
+        'Unknown Credit Score' AS GroupName,
+        ug.UnknownCustomerCount * (rr.RecentRatePer1000 / 1000.0) * si.SeasonalIdx AS ForecastedCalls
+    FROM ForecastCalendar fc
+    JOIN RecentRatesByDay rr ON rr.DayNum = DATEPART(WEEKDAY, fc.CallDay)
+    JOIN SeasonalIndex si ON si.MonthNum = MONTH(fc.CallDay)
+    CROSS JOIN UnknownGroup ug
+)
+
+-- FINAL OUTPUT: one row per group per month, plus a combined total per month
+SELECT
+    FORMAT(CallDay, 'yyyy-MM') AS ForecastMonth,
+    ISNULL(GroupName, 'All Groups Combined') AS CreditGroup,
+    ROUND(SUM(ForecastedCalls), 0) AS TotalForecastedCalls
+FROM DailyByGroup
+GROUP BY GROUPING SETS ((FORMAT(CallDay, 'yyyy-MM'), GroupName), (FORMAT(CallDay, 'yyyy-MM')))
+ORDER BY ForecastMonth, CreditGroup;
