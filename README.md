@@ -327,3 +327,33 @@ SELECT
 FROM TierCalls tc
 JOIN TierCounts tn ON tn.CreditTier = tc.CreditTier
 ORDER BY tc.CreditTier;
+
+
+
+-- WHY: We're still missing about 40% of calls after fixing the FlowEnd issue.
+-- This checks how much of that gap comes specifically from excluding
+-- customers with no credit score on file (CreditScore = 0), versus some
+-- other mismatch entirely (e.g., AccountNumber not matching at all).
+
+WITH AllTexasResidential AS (
+    -- Same population as before, but WITHOUT excluding CreditScore = 0
+    SELECT cust_id, CreditScore
+    FROM iSigma_Customer_Master
+    WHERE Market = 'Texas' AND CustomerType = 'Residential'
+        AND (FlowEnd IS NULL OR FlowEnd >= DATEADD(DAY, -180, CAST(GETDATE() AS DATE)))
+)
+
+SELECT
+    SUM(CASE WHEN a.CreditScore = 0 THEN 1 ELSE 0 END) AS CustomersWithNoScoreOnFile,
+    SUM(CASE WHEN a.CreditScore <> 0 THEN 1 ELSE 0 END) AS CustomersWithValidScore,
+    (SELECT COUNT(*) FROM dbo.IVR ivr
+        JOIN AllTexasResidential a2 ON a2.cust_id = ivr.AccountNumber AND a2.CreditScore = 0
+        WHERE ivr.Department = 'Care' AND ivr.CallType IN ('Inbound', 'Transfer')
+            AND ivr.AgentTalkTime > 0 AND ivr.CallDate >= DATEADD(DAY, -180, CAST(GETDATE() AS DATE))
+    ) AS CallsFromNoScoreCustomers,
+    (SELECT COUNT(*) FROM dbo.IVR ivr
+        JOIN AllTexasResidential a2 ON a2.cust_id = ivr.AccountNumber
+        WHERE ivr.Department = 'Care' AND ivr.CallType IN ('Inbound', 'Transfer')
+            AND ivr.AgentTalkTime > 0 AND ivr.CallDate >= DATEADD(DAY, -180, CAST(GETDATE() AS DATE))
+    ) AS TotalCallsAllTexasResidential
+FROM AllTexasResidential a;
