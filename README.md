@@ -357,3 +357,47 @@ SELECT
             AND ivr.AgentTalkTime > 0 AND ivr.CallDate >= DATEADD(DAY, -180, CAST(GETDATE() AS DATE))
     ) AS TotalCallsAllTexasResidential
 FROM AllTexasResidential a;
+
+
+
+-- ============================================================================
+-- WHY: We've fixed two causes of the call-count gap (FlowEnd, CreditScore=0)
+-- and closed it from 46% to 83% coverage, but there's still a real gap.
+-- Instead of testing one guess at a time, this breaks down ALL 464,362 raw
+-- calls into exactly why each one does or doesn't match a clean, valid,
+-- tiered customer record -- so we see the complete picture in one shot.
+-- ============================================================================
+
+WITH RawCalls AS (
+    SELECT ContactID, AccountNumber
+    FROM dbo.IVR
+    WHERE Department = 'Care'
+        AND CallType IN ('Inbound', 'Transfer')
+        AND AgentTalkTime > 0
+        AND CallDate >= DATEADD(DAY, -180, CAST(GETDATE() AS DATE))
+),
+
+Categorized AS (
+    SELECT
+        rc.ContactID,
+        CASE
+            WHEN cm.cust_id IS NULL THEN '1. No matching customer record at all'
+            WHEN cm.Market <> 'Texas' THEN '2. Matched, but not Texas'
+            WHEN cm.CustomerType <> 'Residential' THEN '3. Matched, Texas, but not Residential'
+            WHEN cm.CreditScore IS NULL THEN '4. Matched, Texas Residential, but CreditScore is NULL'
+            WHEN cm.CreditScore = 0 THEN '5. Matched, Texas Residential, CreditScore = 0 (no score on file)'
+            ELSE '6. Clean match -- valid tiered customer'
+        END AS MatchCategory
+    FROM RawCalls rc
+    LEFT JOIN iSigma_Customer_Master cm 
+        ON cm.cust_id = rc.AccountNumber
+        AND (cm.FlowEnd IS NULL OR cm.FlowEnd >= DATEADD(DAY, -180, CAST(GETDATE() AS DATE)))
+)
+
+SELECT
+    MatchCategory,
+    COUNT(*) AS CallCount,
+    ROUND(100.0 * COUNT(*) / SUM(COUNT(*)) OVER (), 1) AS PctOfTotalCalls
+FROM Categorized
+GROUP BY MatchCategory
+ORDER BY MatchCategory;
