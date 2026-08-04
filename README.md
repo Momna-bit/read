@@ -675,3 +675,89 @@ SELECT
     ROUND(TotalForecastedCalls * 0.078, 0) AS UnknownCreditScore
 FROM DailyTotal
 ORDER BY CallDay;
+
+
+
+-- ============================================================================
+-- WHY: This is the last piece of the 6-month forecast task -- comparing what
+-- the forecast predicted against real results, so drift can be caught early
+-- (e.g., when IVR/LLM changes roll out). Using real early-August data since
+-- it now exists. NOTE: still can't be saved as a permanent view due to the
+-- CREATE VIEW permissions block -- re-run this manually until that's resolved.
+-- ============================================================================
+
+WITH BaselineCount AS (
+    SELECT COUNT(*) AS BaselineCount
+    FROM iSigma_Customer_Master
+    WHERE Market = 'Texas' AND CustomerType = 'Residential'
+        AND FlowStart < '2022-07-01'
+        AND (FlowEnd IS NULL OR FlowEnd >= '2022-07-01')
+),
+ActiveDelta AS (
+    SELECT CAST(FlowStart AS DATE) AS EventDate, 1 AS Delta
+    FROM iSigma_Customer_Master
+    WHERE Market = 'Texas' AND CustomerType = 'Residential' AND FlowStart >= '2022-07-01'
+    UNION ALL
+    SELECT CAST(DATEADD(DAY, 1, FlowEnd) AS DATE) AS EventDate, -1 AS Delta
+    FROM iSigma_Customer_Master
+    WHERE Market = 'Texas' AND CustomerType = 'Residential' AND FlowEnd >= '2022-07-01'
+),
+DailyDelta AS (SELECT EventDate, SUM(Delta) AS NetChange FROM ActiveDelta GROUP BY EventDate),
+
+RecentRates AS (
+    SELECT * FROM (VALUES
+        (1, 0.000), (2, 6.703), (3, 5.254), (4, 4.826),
+        (5, 4.279), (6, 4.668), (7, 1.875)
+    ) AS t(DayNum, RecentRatePer1000)
+),
+SeasonalIndex AS (
+    SELECT * FROM (VALUES
+        (1, 1.107), (2, 1.214), (3, 1.049), (4, 0.931), (5, 0.928), (6, 0.955),
+        (7, 1.074), (8, 1.085), (9, 1.059), (10, 0.935), (11, 0.848), (12, 0.802)
+    ) AS t(MonthNum, SeasonalIdx)
+),
+
+CheckCalendar AS (
+    -- The real days we're validating against: adjust end date to whatever is fully closed out
+    SELECT CAST('2026-08-01' AS DATE) AS CallDay
+    UNION ALL SELECT CAST('2026-08-02' AS DATE)
+    UNION ALL SELECT CAST('2026-08-03' AS DATE)
+),
+
+ForecastActive AS (
+    SELECT cc.CallDay,
+        bc.BaselineCount + ISNULL((SELECT SUM(dd.NetChange) FROM DailyDelta dd WHERE dd.EventDate <= cc.CallDay), 0) AS ActiveCustomerCount
+    FROM CheckCalendar cc CROSS JOIN BaselineCount bc
+),
+
+Forecasted AS (
+    SELECT
+        fa.CallDay,
+        ROUND((rr.RecentRatePer1000 * si.SeasonalIdx / 1000.0) * fa.ActiveCustomerCount, 0) AS ForecastedCalls
+    FROM ForecastActive fa
+    JOIN RecentRates rr ON rr.DayNum = DATEPART(WEEKDAY, fa.CallDay)
+    JOIN SeasonalIndex si ON si.MonthNum = MONTH(fa.CallDay)
+),
+
+Actual AS (
+    SELECT CAST(CallDate AS DATE) AS CallDay, COUNT(*) AS ActualCalls
+    FROM dbo.IVR
+    WHERE Department = 'Care' AND CallType IN ('Inbound', 'Transfer') AND AgentTalkTime > 0
+        AND CAST(CallDate AS DATE) IN ('2026-08-01', '2026-08-02', '2026-08-03')
+    GROUP BY CAST(CallDate AS DATE)
+)
+
+-- FINAL OUTPUT: forecast vs. actual, with variance and a flag for anything beyond +/-15%
+SELECT
+    f.CallDay,
+    DATENAME(WEEKDAY, f.CallDay) AS DayOfWeek,
+    f.ForecastedCalls,
+    a.ActualCalls,
+    ROUND(100.0 * (a.ActualCalls - f.ForecastedCalls) / f.ForecastedCalls, 1) AS PctVariance,
+    CASE 
+        WHEN ABS(100.0 * (a.ActualCalls - f.ForecastedCalls) / f.ForecastedCalls) > 15 
+        THEN 'INVESTIGATE' ELSE 'Within Range' 
+    END AS Flag
+FROM Forecasted f
+JOIN Actual a ON a.CallDay = f.CallDay
+ORDER BY f.CallDay;
