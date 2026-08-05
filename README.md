@@ -795,3 +795,12 @@ WHERE ivr.Department = 'CARE' AND ivr.CallType IN ('INBOUND', 'Transfer')
 GROUP BY ivr.AccountNumber, ivr.CustomerPhone, CAST(ivr.CallDate AS DATE)
 HAVING COUNT(DISTINCT ivr.InitialContact) >= 3
 ORDER BY CallsThatDay DESC;
+
+
+SELECT ivr.ContactID, ivr.CallDate, cai.[call.summary]
+FROM Analytics_ConstellationWH.dbo.IVR ivr
+LEFT JOIN Care_CallAI cai ON cai.ContactID = ivr.ContactID
+WHERE ivr.AccountNumber = '2412260078'
+    AND CAST(ivr.CallDate AS DATE) >= '2026-07-01' AND CAST(ivr.CallDate AS DATE) < '2026-08-01'
+ORDER BY ivr.CallDate;
+
