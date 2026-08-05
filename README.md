@@ -761,3 +761,25 @@ SELECT
 FROM Forecasted f
 JOIN Actual a ON a.CallDay = f.CallDay
 ORDER BY f.CallDay;
+
+
+
+WITH DailyPhoneCalls AS (
+    SELECT CustomerPhone, CAST(CallDate AS DATE) AS CallDay,
+        COUNT(DISTINCT InitialContact) AS Calls
+    FROM Analytics_ConstellationWH.dbo.IVR
+    WHERE Department = 'CARE' AND CallType IN ('INBOUND', 'Transfer')
+        AND CAST(CallDate AS DATE) >= '2026-07-01' AND CAST(CallDate AS DATE) < '2026-08-01'
+    GROUP BY CustomerPhone, CAST(CallDate AS DATE)
+)
+SELECT 'With Anonymous' AS Version,
+    SUM(CASE WHEN Calls > 2 THEN 1 ELSE 0 END) AS Repeats,
+    COUNT(DISTINCT CustomerPhone) AS Customers,
+    ROUND(100.0 * SUM(CASE WHEN Calls > 2 THEN 1 ELSE 0 END) / COUNT(DISTINCT CustomerPhone), 2) AS Pct
+FROM DailyPhoneCalls
+UNION ALL
+SELECT 'Without Anonymous',
+    SUM(CASE WHEN Calls > 2 THEN 1 ELSE 0 END),
+    COUNT(DISTINCT CustomerPhone),
+    ROUND(100.0 * SUM(CASE WHEN Calls > 2 THEN 1 ELSE 0 END) / COUNT(DISTINCT CustomerPhone), 2)
+FROM DailyPhoneCalls WHERE CustomerPhone <> 'Anonymous';
