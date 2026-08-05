@@ -827,3 +827,17 @@ ORDER BY CallCount DESC;
 
 
 
+SELECT ivr.AccountNumber,
+    COUNT(*) AS TotalCalls,
+    SUM(CASE WHEN ivr.VerificationStatus = 'Abandoned' THEN 1 ELSE 0 END) AS Abandoned,
+    SUM(CASE WHEN ivr.VerificationStatus = 'Not Attempted' THEN 1 ELSE 0 END) AS NotAttempted,
+    ROUND(100.0 * (SUM(CASE WHEN ivr.VerificationStatus IN ('Abandoned', 'Not Attempted') THEN 1 ELSE 0 END)) / COUNT(*), 1) AS PctNeverConnected
+FROM Analytics_ConstellationWH.dbo.IVR ivr
+WHERE ivr.Department = 'CARE' AND ivr.CallType IN ('INBOUND', 'Transfer')
+    AND CAST(ivr.CallDate AS DATE) >= '2026-07-01' AND CAST(ivr.CallDate AS DATE) < '2026-08-01'
+    AND ivr.AccountNumber IS NOT NULL
+GROUP BY ivr.AccountNumber
+HAVING COUNT(*) >= 15
+ORDER BY PctNeverConnected DESC;
+
+
