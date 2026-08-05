@@ -1037,3 +1037,33 @@ WHERE [call.summary] IS NOT NULL
 ORDER BY NEWID();
 
 
+WITH ConnectedCalls AS (
+    SELECT AccountNumber, CAST(CallDate AS DATE) AS CallDay,
+        COUNT(DISTINCT InitialContact) AS Calls
+    FROM Analytics_ConstellationWH.dbo.IVR
+    WHERE Department = 'CARE' AND CallType IN ('INBOUND', 'Transfer')
+        AND CAST(CallDate AS DATE) >= '2026-07-01' AND CAST(CallDate AS DATE) < '2026-08-01'
+        AND AccountNumber IS NOT NULL
+        AND VerificationStatus NOT IN ('Abandoned', 'Not Attempted')
+    GROUP BY AccountNumber, CAST(CallDate AS DATE)
+    HAVING COUNT(DISTINCT InitialContact) BETWEEN 2 AND 10
+),
+RepeatCallerCalls AS (
+    SELECT cai.[call.summary] AS Summary
+    FROM Analytics_ConstellationWH.dbo.IVR ivr
+    JOIN ConnectedCalls cc ON cc.AccountNumber = ivr.AccountNumber AND cc.CallDay = CAST(ivr.CallDate AS DATE)
+    LEFT JOIN Care_CallAI cai ON cai.ContactID = ivr.ContactID
+    WHERE ivr.Department = 'CARE' AND ivr.CallType IN ('INBOUND', 'Transfer')
+        AND cai.[call.summary] IS NOT NULL
+)
+
+SELECT
+    COUNT(*) AS TotalCallsWithSummary,
+    SUM(CASE WHEN Summary LIKE '%payment plan%' OR Summary LIKE '%payment arrangement%' OR Summary LIKE '%installment%' OR Summary LIKE '%hardship%' OR Summary LIKE '%DMP%' THEN 1 ELSE 0 END) AS PaymentHardship,
+    SUM(CASE WHEN Summary LIKE '%disconnect%' OR Summary LIKE '%confirm%post%' OR Summary LIKE '%avoid disconnection%' THEN 1 ELSE 0 END) AS DisconnectAnxiety,
+    SUM(CASE WHEN Summary LIKE '%remained dissatisfied%' OR Summary LIKE '%requested a manager%' OR Summary LIKE '%did not progress to resolution%' OR Summary LIKE '%no resolution%' THEN 1 ELSE 0 END) AS UnresolvedDissatisfaction,
+    SUM(CASE WHEN Summary LIKE '%no agent response%' OR Summary LIKE '%repeated greeting%' OR Summary LIKE '%no inquiry%addressed%' THEN 1 ELSE 0 END) AS TechnicalGlitch
+FROM RepeatCallerCalls;
+
+
+
