@@ -892,3 +892,28 @@ SELECT
 FROM RealRepeatCallDetail;
 
 
+
+WITH ConnectedCalls AS (
+    SELECT AccountNumber, CAST(CallDate AS DATE) AS CallDay,
+        COUNT(DISTINCT InitialContact) AS Calls
+    FROM Analytics_ConstellationWH.dbo.IVR
+    WHERE Department = 'CARE' AND CallType IN ('INBOUND', 'Transfer')
+        AND CAST(CallDate AS DATE) >= '2026-07-01' AND CAST(CallDate AS DATE) < '2026-08-01'
+        AND AccountNumber IS NOT NULL
+        AND VerificationStatus NOT IN ('Abandoned', 'Not Attempted')
+    GROUP BY AccountNumber, CAST(CallDate AS DATE)
+    HAVING COUNT(DISTINCT InitialContact) >= 2
+)
+
+SELECT
+    ivr.Queue,
+    ivr.IVRTransferReason,
+    ivr.VerificationStatus,
+    COUNT(*) AS CallCount
+FROM Analytics_ConstellationWH.dbo.IVR ivr
+JOIN ConnectedCalls cc ON cc.AccountNumber = ivr.AccountNumber AND cc.CallDay = CAST(ivr.CallDate AS DATE)
+WHERE ivr.Department = 'CARE' AND ivr.CallType IN ('INBOUND', 'Transfer')
+    AND (ivr.AgentTalkTime = 0 OR ivr.AgentTalkTime IS NULL)
+GROUP BY ivr.Queue, ivr.IVRTransferReason, ivr.VerificationStatus
+ORDER BY CallCount DESC;
+
