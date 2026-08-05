@@ -1011,3 +1011,29 @@ SELECT
 FROM UnlabeledIVROnly;
 
 
+
+WITH ConnectedCalls AS (
+    SELECT AccountNumber, CAST(CallDate AS DATE) AS CallDay,
+        COUNT(DISTINCT InitialContact) AS Calls
+    FROM Analytics_ConstellationWH.dbo.IVR
+    WHERE Department = 'CARE' AND CallType IN ('INBOUND', 'Transfer')
+        AND CAST(CallDate AS DATE) >= '2026-07-01' AND CAST(CallDate AS DATE) < '2026-08-01'
+        AND AccountNumber IS NOT NULL
+        AND VerificationStatus NOT IN ('Abandoned', 'Not Attempted')
+    GROUP BY AccountNumber, CAST(CallDate AS DATE)
+    HAVING COUNT(DISTINCT InitialContact) BETWEEN 2 AND 10  -- exclude the extreme artifact accounts
+),
+RepeatCallerCalls AS (
+    SELECT ivr.ContactID, ivr.AccountNumber, ivr.PastDueCall, cai.[call.summary]
+    FROM Analytics_ConstellationWH.dbo.IVR ivr
+    JOIN ConnectedCalls cc ON cc.AccountNumber = ivr.AccountNumber AND cc.CallDay = CAST(ivr.CallDate AS DATE)
+    LEFT JOIN Care_CallAI cai ON cai.ContactID = ivr.ContactID
+    WHERE ivr.Department = 'CARE' AND ivr.CallType IN ('INBOUND', 'Transfer')
+)
+
+SELECT TOP 30 AccountNumber, PastDueCall, [call.summary]
+FROM RepeatCallerCalls
+WHERE [call.summary] IS NOT NULL
+ORDER BY NEWID();
+
+
