@@ -783,3 +783,15 @@ SELECT 'Without Anonymous',
     COUNT(DISTINCT CustomerPhone),
     ROUND(100.0 * SUM(CASE WHEN Calls > 2 THEN 1 ELSE 0 END) / COUNT(DISTINCT CustomerPhone), 2)
 FROM DailyPhoneCalls WHERE CustomerPhone <> 'Anonymous';
+
+
+
+SELECT TOP 20 ivr.AccountNumber, ivr.CustomerPhone, CAST(ivr.CallDate AS DATE) AS CallDay,
+    COUNT(DISTINCT ivr.InitialContact) AS CallsThatDay
+FROM Analytics_ConstellationWH.dbo.IVR ivr
+WHERE ivr.Department = 'CARE' AND ivr.CallType IN ('INBOUND', 'Transfer')
+    AND CAST(ivr.CallDate AS DATE) >= '2026-07-01' AND CAST(ivr.CallDate AS DATE) < '2026-08-01'
+    AND ivr.CustomerPhone <> 'Anonymous'
+GROUP BY ivr.AccountNumber, ivr.CustomerPhone, CAST(ivr.CallDate AS DATE)
+HAVING COUNT(DISTINCT ivr.InitialContact) >= 3
+ORDER BY CallsThatDay DESC;
