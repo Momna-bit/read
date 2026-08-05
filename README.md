@@ -841,3 +841,27 @@ HAVING COUNT(*) >= 15
 ORDER BY PctNeverConnected DESC;
 
 
+WITH ConnectedCalls AS (
+    SELECT AccountNumber, CAST(CallDate AS DATE) AS CallDay,
+        COUNT(DISTINCT InitialContact) AS Calls
+    FROM Analytics_ConstellationWH.dbo.IVR
+    WHERE Department = 'CARE' AND CallType IN ('INBOUND', 'Transfer')
+        AND CAST(CallDate AS DATE) >= '2026-07-01' AND CAST(CallDate AS DATE) < '2026-08-01'
+        AND AccountNumber IS NOT NULL
+        AND VerificationStatus NOT IN ('Abandoned', 'Not Attempted')
+    GROUP BY AccountNumber, CAST(CallDate AS DATE)
+),
+Repeaters AS (
+    SELECT DISTINCT AccountNumber FROM ConnectedCalls WHERE Calls >= 2
+),
+TotalCustomers AS (
+    SELECT COUNT(DISTINCT AccountNumber) AS TotalCustomers FROM ConnectedCalls
+)
+
+SELECT
+    (SELECT COUNT(*) FROM Repeaters) AS RealRepeatCallers,
+    (SELECT TotalCustomers FROM TotalCustomers) AS TotalCustomers,
+    ROUND(100.0 * (SELECT COUNT(*) FROM Repeaters) / (SELECT TotalCustomers FROM TotalCustomers), 2) AS RealRepeatPct;
+
+
+
