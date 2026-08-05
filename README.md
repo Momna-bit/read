@@ -983,3 +983,31 @@ SELECT
 FROM UnlabeledIVROnly;
 
 
+WITH ConnectedCalls AS (
+    SELECT AccountNumber, CAST(CallDate AS DATE) AS CallDay,
+        COUNT(DISTINCT InitialContact) AS Calls
+    FROM Analytics_ConstellationWH.dbo.IVR
+    WHERE Department = 'CARE' AND CallType IN ('INBOUND', 'Transfer')
+        AND CAST(CallDate AS DATE) >= '2026-07-01' AND CAST(CallDate AS DATE) < '2026-08-01'
+        AND AccountNumber IS NOT NULL
+        AND VerificationStatus NOT IN ('Abandoned', 'Not Attempted')
+    GROUP BY AccountNumber, CAST(CallDate AS DATE)
+    HAVING COUNT(DISTINCT InitialContact) >= 2
+),
+UnlabeledIVROnly AS (
+    SELECT ivr.IVRTime, ivr.PaymentAmount
+    FROM Analytics_ConstellationWH.dbo.IVR ivr
+    JOIN ConnectedCalls cc ON cc.AccountNumber = ivr.AccountNumber AND cc.CallDay = CAST(ivr.CallDate AS DATE)
+    WHERE ivr.Department = 'CARE' AND ivr.CallType IN ('INBOUND', 'Transfer')
+        AND (ivr.AgentTalkTime = 0 OR ivr.AgentTalkTime IS NULL)
+        AND (ivr.Queue IS NULL OR ivr.Queue = '')
+        AND ivr.IVRTransferReason IS NULL
+        AND ivr.VerificationStatus = 'Verified'
+)
+SELECT
+    COUNT(*) AS TotalUnlabeled,
+    SUM(CASE WHEN IVRTime > 180 AND (PaymentAmount IS NULL OR PaymentAmount = 0) THEN 1 ELSE 0 END) AS LongAndNoPayment_LikelyStruggling,
+    ROUND(100.0 * SUM(CASE WHEN IVRTime > 180 AND (PaymentAmount IS NULL OR PaymentAmount = 0) THEN 1 ELSE 0 END) / COUNT(*), 1) AS PctLikelyStruggling
+FROM UnlabeledIVROnly;
+
+
