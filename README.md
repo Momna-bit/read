@@ -917,3 +917,11 @@ WHERE ivr.Department = 'CARE' AND ivr.CallType IN ('INBOUND', 'Transfer')
 GROUP BY ivr.Queue, ivr.IVRTransferReason, ivr.VerificationStatus
 ORDER BY CallCount DESC;
 
+
+
+
+SELECT COLUMN_NAME, DATA_TYPE
+FROM INFORMATION_SCHEMA.COLUMNS
+WHERE TABLE_NAME = 'IVR'
+ORDER BY ORDINAL_POSITION;
+
