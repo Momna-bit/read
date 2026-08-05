@@ -925,3 +925,31 @@ FROM INFORMATION_SCHEMA.COLUMNS
 WHERE TABLE_NAME = 'IVR'
 ORDER BY ORDINAL_POSITION;
 
+
+WITH ConnectedCalls AS (
+    SELECT AccountNumber, CAST(CallDate AS DATE) AS CallDay,
+        COUNT(DISTINCT InitialContact) AS Calls
+    FROM Analytics_ConstellationWH.dbo.IVR
+    WHERE Department = 'CARE' AND CallType IN ('INBOUND', 'Transfer')
+        AND CAST(CallDate AS DATE) >= '2026-07-01' AND CAST(CallDate AS DATE) < '2026-08-01'
+        AND AccountNumber IS NOT NULL
+        AND VerificationStatus NOT IN ('Abandoned', 'Not Attempted')
+    GROUP BY AccountNumber, CAST(CallDate AS DATE)
+    HAVING COUNT(DISTINCT InitialContact) >= 2
+),
+UnlabeledIVROnly AS (
+    SELECT ivr.IVRTime, ivr.PaymentAmount
+    FROM Analytics_ConstellationWH.dbo.IVR ivr
+    JOIN ConnectedCalls cc ON cc.AccountNumber = ivr.AccountNumber AND cc.CallDay = CAST(ivr.CallDate AS DATE)
+    WHERE ivr.Department = 'CARE' AND ivr.CallType IN ('INBOUND', 'Transfer')
+        AND (ivr.AgentTalkTime = 0 OR ivr.AgentTalkTime IS NULL)
+        AND ivr.Queue IS NULL AND ivr.IVRTransferReason IS NULL
+        AND ivr.VerificationStatus = 'Verified'
+)
+SELECT
+    COUNT(*) AS TotalUnlabeledCalls,
+    SUM(CASE WHEN PaymentAmount > 0 THEN 1 ELSE 0 END) AS MadeAPayment,
+    ROUND(AVG(CAST(IVRTime AS FLOAT)), 0) AS AvgSecondsInIVR,
+    SUM(CASE WHEN IVRTime > 180 THEN 1 ELSE 0 END) AS Over3MinutesInIVR
+FROM UnlabeledIVROnly;
+
