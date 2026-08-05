@@ -804,3 +804,15 @@ WHERE ivr.AccountNumber = '2412260078'
     AND CAST(ivr.CallDate AS DATE) >= '2026-07-01' AND CAST(ivr.CallDate AS DATE) < '2026-08-01'
 ORDER BY ivr.CallDate;
 
+
+
+SELECT ivr.AccountNumber, CAST(ivr.CallDate AS DATE) AS CallDay,
+    COUNT(DISTINCT ivr.InitialContact) AS CallsThatDay
+FROM Analytics_ConstellationWH.dbo.IVR ivr
+WHERE ivr.Department = 'CARE' AND ivr.CallType IN ('INBOUND', 'Transfer')
+    AND CAST(ivr.CallDate AS DATE) >= '2026-07-01' AND CAST(ivr.CallDate AS DATE) < '2026-08-01'
+    AND ivr.AccountNumber IS NOT NULL
+GROUP BY ivr.AccountNumber, CAST(ivr.CallDate AS DATE)
+HAVING COUNT(DISTINCT ivr.InitialContact) >= 2
+ORDER BY CallsThatDay DESC, CallDay;
+
