@@ -816,3 +816,14 @@ GROUP BY ivr.AccountNumber, CAST(ivr.CallDate AS DATE)
 HAVING COUNT(DISTINCT ivr.InitialContact) >= 2
 ORDER BY CallsThatDay DESC, CallDay;
 
+
+SELECT ivr.Department, ivr.Queue, ivr.CallType, ivr.VerificationStatus,
+    COUNT(*) AS CallCount
+FROM Analytics_ConstellationWH.dbo.IVR ivr
+WHERE ivr.AccountNumber = '2412260078'
+    AND CAST(ivr.CallDate AS DATE) >= '2026-07-01' AND CAST(ivr.CallDate AS DATE) < '2026-08-01'
+GROUP BY ivr.Department, ivr.Queue, ivr.CallType, ivr.VerificationStatus
+ORDER BY CallCount DESC;
+
+
+
