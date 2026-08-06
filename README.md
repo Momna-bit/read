@@ -447,7 +447,6 @@ Final AS (
         ) THEN 1 ELSE 0 END AS CalledWithin14Days
     FROM FeatureSet f
 )
-SELECT CalledWithin14Days, COUNT(*) AS RowCount
+SELECT CalledWithin14Days, COUNT(*) AS BillCount
 FROM Final
 GROUP BY CalledWithin14Days
-
