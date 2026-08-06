@@ -455,3 +455,9 @@ GROUP BY CalledWithin14Days
 
 SELECT COUNT(*) AS TotalRows, COUNT(DISTINCT AccountID) AS DistinctAccounts
 FROM vw_Care_CustomerContact
+
+
+
+SELECT TOP 5 AccountID FROM vw_Care_CustomerContact
+SELECT TOP 5 cust_id FROM iSigma_Customer_Master
+
