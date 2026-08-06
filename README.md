@@ -42,7 +42,7 @@ npm run dev
 
 -- STEP 1: Build per-customer feature set for usage-alert predictive score
 -- Features: bill increase % vs personal historical median, credit score, tenure (days)
--- Label: did the customer call within N days of this bill (1) or not (0)
+-- Label: did the customer call within 14 days of this bill (1) or not (0)
 
 WITH BillHistory AS (
     SELECT
@@ -59,19 +59,26 @@ WITH BillHistory AS (
 ),
 MedianCalc AS (
     SELECT
-        AccountNumber,
-        BillDate,
-        TotalCharges,
-        CreditScore,
-        FlowStart,
-        -- personal historical median charge, excluding current bill
-        (
-            SELECT PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY TotalCharges)
+        b1.AccountNumber,
+        b1.BillDate,
+        b1.TotalCharges,
+        b1.CreditScore,
+        b1.FlowStart,
+        m.PersonalMedianCharge
+    FROM BillHistory b1
+    CROSS APPLY (
+        SELECT AVG(TotalCharges) AS PersonalMedianCharge
+        FROM (
+            SELECT
+                TotalCharges,
+                ROW_NUMBER() OVER (ORDER BY TotalCharges) AS rn,
+                COUNT(*) OVER () AS cnt
             FROM BillHistory b2
             WHERE b2.AccountNumber = b1.AccountNumber
               AND b2.BillDate < b1.BillDate
-        ) AS PersonalMedianCharge
-    FROM BillHistory b1
+        ) ranked
+        WHERE rn IN ((cnt + 1) / 2, (cnt + 2) / 2)
+    ) m
 ),
 FeatureSet AS (
     SELECT
