@@ -450,3 +450,8 @@ Final AS (
 SELECT CalledWithin14Days, COUNT(*) AS BillCount
 FROM Final
 GROUP BY CalledWithin14Days
+
+
+
+SELECT COUNT(*) AS TotalRows, COUNT(DISTINCT AccountID) AS DistinctAccounts
+FROM vw_Care_CustomerContact
