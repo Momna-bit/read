@@ -253,3 +253,15 @@ FROM FeatureSet f
 SELECT COUNT(*) FROM (
     -- same query, no need to see all rows, just count
 ) x
+
+
+SELECT CalledWithin14Days, COUNT(*) AS RowCount
+FROM (
+    -- paste your full Step 1 query here
+) x
+GROUP BY CalledWithin14Days
+
+
+SELECT COUNT(*) AS TotalRows FROM (
+    -- same query
+) x
