@@ -589,5 +589,3 @@ SELECT
 INTO dbo.Task7_FeatureSet
 FROM FeatureSet f
 
-
-
