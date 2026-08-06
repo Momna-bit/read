@@ -103,3 +103,7 @@ SELECT
           AND cc.CallDate BETWEEN f.Bill_Date AND DATEADD(DAY, 14, f.Bill_Date)
     ) THEN 1 ELSE 0 END AS CalledWithin14Days
 FROM FeatureSet f
+
+
+CAST(b.inv_amount AS DECIMAL(18,2)) AS inv_amount
+
