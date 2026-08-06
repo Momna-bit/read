@@ -173,3 +173,21 @@ SELECT
     ) THEN 1 ELSE 0 END AS CalledWithin14Days
 FROM FeatureSet f
 
+
+-- STEP 2 (faster): Pre-aggregate call dates per customer once, then join
+WITH CallsByCustomer AS (
+    SELECT DISTINCT AccountID AS cust_id, CallDate
+    FROM vw_Care_CustomerContact
+)
+SELECT
+    f.*,
+    CASE WHEN EXISTS (
+        SELECT 1 FROM CallsByCustomer c
+        WHERE c.cust_id = f.cust_id
+          AND c.CallDate BETWEEN f.Bill_Date AND DATEADD(DAY, 14, f.Bill_Date)
+    ) THEN 1 ELSE 0 END AS CalledWithin14Days
+FROM FeatureSet f
+
+
+
+WHERE b.Bill_Date >= '2024-01-01'
