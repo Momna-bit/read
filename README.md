@@ -247,3 +247,9 @@ SELECT
           AND c.CallDate BETWEEN f.Bill_Date AND DATEADD(DAY, 14, f.Bill_Date)
     ) THEN 1 ELSE 0 END AS CalledWithin14Days
 FROM FeatureSet f
+
+
+
+SELECT COUNT(*) FROM (
+    -- same query, no need to see all rows, just count
+) x
