@@ -98,21 +98,8 @@ FeatureSet AS (
 SELECT
     f.*,
     CASE WHEN EXISTS (
-        SELECT 1 FROM dbo.Care_CallAI ca
-        WHERE ca.cust_id = f.cust_id
-          AND ca.CallDate BETWEEN f.Bill_Date AND DATEADD(DAY, 14, f.Bill_Date)
+        SELECT 1 FROM vw_Care_CustomerContact cc
+        WHERE cc.AccountID = f.cust_id
+          AND cc.CallDate BETWEEN f.Bill_Date AND DATEADD(DAY, 14, f.Bill_Date)
     ) THEN 1 ELSE 0 END AS CalledWithin14Days
 FROM FeatureSet f
-
-
-SELECT COLUMN_NAME, DATA_TYPE
-FROM INFORMATION_SCHEMA.COLUMNS
-WHERE TABLE_NAME = 'Care_CallAI'
-ORDER BY ORDINAL_POSITION
-
-
-
-SELECT COLUMN_NAME, DATA_TYPE
-FROM INFORMATION_SCHEMA.COLUMNS
-WHERE TABLE_NAME = 'vw_Care_CustomerContact'
-ORDER BY ORDINAL_POSITION
