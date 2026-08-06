@@ -461,3 +461,5 @@ FROM vw_Care_CustomerContact
 SELECT TOP 5 AccountID FROM vw_Care_CustomerContact
 SELECT TOP 5 cust_id FROM iSigma_Customer_Master
 
+
+SELECT TOP 5 CustID FROM vw_Care_CustomerContact
