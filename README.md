@@ -107,3 +107,69 @@ FROM FeatureSet f
 
 CAST(b.inv_amount AS DECIMAL(18,2)) AS inv_amount
 
+
+
+WITH BillHistory AS (
+    SELECT
+        b.cust_id,
+        b.Bill_Date,
+        CAST(b.inv_amount AS DECIMAL(18,2)) AS inv_amount,
+        c.CreditScore,
+        c.FlowStart
+    FROM iSigma_Bill_Master b
+    INNER JOIN iSigma_Customer_Master c
+        ON b.cust_id = c.cust_id
+    WHERE c.Market = 'Texas'
+      AND c.CustomerType = 'Residential'
+),
+Ranked AS (
+    SELECT
+        cust_id,
+        Bill_Date,
+        inv_amount,
+        CreditScore,
+        FlowStart,
+        ROW_NUMBER() OVER (PARTITION BY cust_id ORDER BY Bill_Date) AS rn,
+        COUNT(*) OVER (PARTITION BY cust_id) AS total_bills
+    FROM BillHistory
+),
+MedianPerCust AS (
+    SELECT
+        cust_id,
+        AVG(inv_amount) AS PersonalMedianCharge
+    FROM (
+        SELECT
+            cust_id,
+            inv_amount,
+            ROW_NUMBER() OVER (PARTITION BY cust_id ORDER BY inv_amount) AS med_rn,
+            COUNT(*) OVER (PARTITION BY cust_id) AS cnt
+        FROM BillHistory
+    ) x
+    WHERE med_rn IN ((cnt + 1) / 2, (cnt + 2) / 2)
+    GROUP BY cust_id
+),
+FeatureSet AS (
+    SELECT
+        r.cust_id,
+        r.Bill_Date,
+        r.inv_amount,
+        m.PersonalMedianCharge,
+        CASE WHEN m.PersonalMedianCharge > 0
+             THEN (r.inv_amount - m.PersonalMedianCharge) / m.PersonalMedianCharge * 100.0
+             ELSE NULL END AS BillIncreasePct,
+        r.CreditScore,
+        DATEDIFF(DAY, r.FlowStart, r.Bill_Date) AS TenureDays
+    FROM Ranked r
+    INNER JOIN MedianPerCust m ON r.cust_id = m.cust_id
+    WHERE m.PersonalMedianCharge IS NOT NULL
+      AND r.CreditScore IS NOT NULL AND r.CreditScore != 0
+)
+SELECT
+    f.*,
+    CASE WHEN EXISTS (
+        SELECT 1 FROM vw_Care_CustomerContact cc
+        WHERE cc.AccountID = f.cust_id
+          AND cc.CallDate BETWEEN f.Bill_Date AND DATEADD(DAY, 14, f.Bill_Date)
+    ) THEN 1 ELSE 0 END AS CalledWithin14Days
+FROM FeatureSet f
+
