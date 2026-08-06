@@ -40,66 +40,7 @@ npm list react-dom
 npm run dev
 
 
--- STEP 1: Build per-customer feature set for usage-alert predictive score
--- Features: bill increase % vs personal historical median, credit score, tenure (days)
--- Label: did the customer call within 14 days of this bill (1) or not (0)
-
-WITH BillHistory AS (
-    SELECT
-        AccountNumber,
-        BillDate,
-        CAST(TotalCharges AS DECIMAL(10,2)) AS TotalCharges,
-        CreditScore,
-        FlowStart
-    FROM iSigma_Bill_Master b
-    INNER JOIN iSigma_Customer_Master c
-        ON b.AccountNumber = c.AccountNumber
-    WHERE c.Market = 'Texas'
-      AND c.CustomerType = 'Residential'
-),
-MedianCalc AS (
-    SELECT
-        b1.AccountNumber,
-        b1.BillDate,
-        b1.TotalCharges,
-        b1.CreditScore,
-        b1.FlowStart,
-        m.PersonalMedianCharge
-    FROM BillHistory b1
-    CROSS APPLY (
-        SELECT AVG(TotalCharges) AS PersonalMedianCharge
-        FROM (
-            SELECT
-                TotalCharges,
-                ROW_NUMBER() OVER (ORDER BY TotalCharges) AS rn,
-                COUNT(*) OVER () AS cnt
-            FROM BillHistory b2
-            WHERE b2.AccountNumber = b1.AccountNumber
-              AND b2.BillDate < b1.BillDate
-        ) ranked
-        WHERE rn IN ((cnt + 1) / 2, (cnt + 2) / 2)
-    ) m
-),
-FeatureSet AS (
-    SELECT
-        AccountNumber,
-        BillDate,
-        TotalCharges,
-        PersonalMedianCharge,
-        CASE WHEN PersonalMedianCharge > 0
-             THEN (TotalCharges - PersonalMedianCharge) / PersonalMedianCharge * 100.0
-             ELSE NULL END AS BillIncreasePct,
-        CreditScore,
-        DATEDIFF(DAY, FlowStart, BillDate) AS TenureDays
-    FROM MedianCalc
-    WHERE PersonalMedianCharge IS NOT NULL
-      AND CreditScore IS NOT NULL AND CreditScore != 0
-)
-SELECT
-    f.*,
-    CASE WHEN EXISTS (
-        SELECT 1 FROM dbo.Care_CallAI ca
-        WHERE ca.AccountNumber = f.AccountNumber
-          AND ca.CallDate BETWEEN f.BillDate AND DATEADD(DAY, 14, f.BillDate)
-    ) THEN 1 ELSE 0 END AS CalledWithin14Days
-FROM FeatureSet f
+SELECT COLUMN_NAME, DATA_TYPE
+FROM INFORMATION_SCHEMA.COLUMNS
+WHERE TABLE_NAME IN ('iSigma_Bill_Master', 'iSigma_Customer_Master')
+ORDER BY TABLE_NAME, ORDINAL_POSITION
