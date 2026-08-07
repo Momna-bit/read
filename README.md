@@ -606,3 +606,64 @@ ORDER BY ORDINAL_POSITION
 
 SELECT DISTINCT Action FROM vw_Salesforce_Autopay
 
+
+
+-- STEP 1: Identify card-change autopay removals via call.summary keyword search
+-- Bridge Salesforce AccountID -> cust_id via vw_Salesforce_BillingAccount
+-- Then check which of those customers did NOT re-enroll within 60 days
+
+WITH CardChangeCalls AS (
+    SELECT DISTINCT
+        ba.CustID AS cust_id,
+        ca.Date AS CallDate
+    FROM dbo.Care_CallAI ca
+    INNER JOIN vw_Salesforce_BillingAccount ba
+        ON ca.AccountID = ba.ID  -- adjust join key once confirmed which field on Care_CallAI holds the Salesforce AccountID
+    WHERE ca.[call.summary] LIKE '%expired card%'
+       OR ca.[call.summary] LIKE '%lost%card%'
+       OR ca.[call.summary] LIKE '%cancel%card%'
+       OR ca.[call.summary] LIKE '%new card%'
+       OR ca.[call.summary] LIKE '%update%card%'
+       OR ca.[call.summary] LIKE '%update%payment method%'
+),
+AutopayRemovals AS (
+    SELECT
+        ba.CustID AS cust_id,
+        a.Created AS RemovalDate
+    FROM vw_Salesforce_Autopay a
+    INNER JOIN vw_Salesforce_BillingAccount ba
+        ON a.AccountID = ba.ID
+    WHERE a.Action = 'Remove'
+),
+CardChangeRemovals AS (
+    -- Only keep removals that had a matching card-change call within a reasonable window (e.g. +/- 7 days)
+    SELECT DISTINCT
+        r.cust_id,
+        r.RemovalDate
+    FROM AutopayRemovals r
+    INNER JOIN CardChangeCalls c
+        ON r.cust_id = c.cust_id
+        AND c.CallDate BETWEEN DATEADD(DAY, -7, r.RemovalDate) AND DATEADD(DAY, 7, r.RemovalDate)
+),
+ReEnrollCheck AS (
+    SELECT
+        r.cust_id,
+        r.RemovalDate,
+        CASE WHEN EXISTS (
+            SELECT 1 FROM vw_Salesforce_Autopay a2
+            INNER JOIN vw_Salesforce_BillingAccount ba2 ON a2.AccountID = ba2.ID
+            WHERE ba2.CustID = r.cust_id
+              AND a2.Action = 'Add'
+              AND a2.Created BETWEEN r.RemovalDate AND DATEADD(DAY, 60, r.RemovalDate)
+        ) THEN 1 ELSE 0 END AS ReEnrolledWithin60Days
+    FROM CardChangeRemovals r
+)
+SELECT
+    rc.cust_id,
+    rc.RemovalDate,
+    c.FlowEnd,       -- NULL = still active
+    c.Status,
+    c.AutoPayOn
+FROM ReEnrollCheck rc
+INNER JOIN iSigma_Customer_Master c ON rc.cust_id = c.cust_id
+WHERE rc.ReEnrolledWithin60Days = 0
