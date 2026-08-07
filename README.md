@@ -877,3 +877,35 @@ SELECT
     SUM(TotalDue) AS TotalOwed,
     AVG(PastDue) AS AvgPastDuePerCustomer
 FROM ChurnedWithBalance
+
+
+
+-- STEP 1: Baseline churn rate for a comparable population
+-- Compare: customers active around the same time as our card-change removals,
+-- checked ~60+ days later, same as our test group
+
+WITH CardChangeRemovalDates AS (
+    -- Reuse: just the removal dates from our existing analysis, to know the comparison window
+    SELECT MIN(RemovalDate) AS MinDate, MAX(RemovalDate) AS MaxDate
+    FROM (
+        SELECT a.Created AS RemovalDate
+        FROM vw_Salesforce_Autopay a
+        WHERE a.Action = 'Remove'
+    ) x
+),
+BaselinePopulation AS (
+    SELECT
+        c.cust_id,
+        c.FlowStart,
+        c.FlowEnd
+    FROM iSigma_Customer_Master c
+    WHERE c.Market = 'Texas'
+      AND c.CustomerType = 'Residential'
+      AND c.FlowStart < DATEADD(DAY, -60, GETDATE())  -- must have had at least 60 days to churn
+)
+SELECT
+    COUNT(*) AS TotalBaselineCustomers,
+    SUM(CASE WHEN FlowEnd IS NOT NULL THEN 1 ELSE 0 END) AS ChurnedCount,
+    CAST(SUM(CASE WHEN FlowEnd IS NOT NULL THEN 1 ELSE 0 END) AS FLOAT)
+        / COUNT(*) * 100.0 AS ChurnRatePct
+FROM BaselinePopulation
