@@ -918,3 +918,28 @@ SELECT
     CAST(SUM(CAST(CASE WHEN FlowEnd IS NOT NULL AND FlowEnd <= DATEADD(DAY, 60, RefDate) THEN 1 ELSE 0 END AS BIGINT)) AS FLOAT)
         / COUNT_BIG(*) * 100.0 AS ChurnRatePct
 FROM BaselineSample
+
+
+
+
+-- STEP 1 (fixed): Baseline 60-day churn rate using a single representative reference date
+-- Avoids the multiplied cross-join across every distinct removal date
+
+DECLARE @RefDate DATE = '2026-04-01';  -- pick a midpoint date within your removal window
+
+WITH BaselineSample AS (
+    SELECT
+        c.cust_id,
+        c.FlowEnd
+    FROM iSigma_Customer_Master c
+    WHERE c.Market = 'Texas'
+      AND c.CustomerType = 'Residential'
+      AND c.FlowStart < @RefDate
+      AND (c.FlowEnd IS NULL OR c.FlowEnd > @RefDate)
+)
+SELECT
+    COUNT_BIG(*) AS TotalBaselineCustomers,
+    SUM(CAST(CASE WHEN FlowEnd IS NOT NULL AND FlowEnd <= DATEADD(DAY, 60, @RefDate) THEN 1 ELSE 0 END AS BIGINT)) AS ChurnedWithin60Days,
+    CAST(SUM(CAST(CASE WHEN FlowEnd IS NOT NULL AND FlowEnd <= DATEADD(DAY, 60, @RefDate) THEN 1 ELSE 0 END AS BIGINT)) AS FLOAT)
+        / COUNT_BIG(*) * 100.0 AS ChurnRatePct
+FROM BaselineSample
