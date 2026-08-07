@@ -730,3 +730,84 @@ FROM ReEnrollCheck rc
 INNER JOIN iSigma_Customer_Master c ON rc.cust_id = c.cust_id
 WHERE rc.ReEnrolledWithin60Days = 0
 GROUP BY CASE WHEN c.FlowEnd IS NOT NULL THEN 'Churned' ELSE 'Still Active' END
+
+
+
+WITH CardChangeCalls AS (
+    SELECT DISTINCT
+        cc.CustID AS cust_id,
+        cc.CallDate
+    FROM dbo.Care_CallAI ca
+    INNER JOIN vw_Care_CustomerContact cc
+        ON ca.ContactID = cc.ContactID
+    WHERE ca.[call.summary] LIKE '%expired card%'
+       OR ca.[call.summary] LIKE '%lost%card%'
+       OR ca.[call.summary] LIKE '%cancel%card%'
+       OR ca.[call.summary] LIKE '%new card%'
+       OR ca.[call.summary] LIKE '%update%card%'
+       OR ca.[call.summary] LIKE '%update%payment method%'
+),
+AutopayRemovals AS (
+    SELECT
+        ba.CustID AS cust_id,
+        a.Created AS RemovalDate
+    FROM vw_Salesforce_Autopay a
+    INNER JOIN vw_Salesforce_BillingAccount ba
+        ON a.AccountID = ba.ID
+    WHERE a.Action = 'Remove'
+),
+CardChangeRemovals AS (
+    SELECT DISTINCT
+        r.cust_id,
+        r.RemovalDate
+    FROM AutopayRemovals r
+    INNER JOIN CardChangeCalls c
+        ON r.cust_id = c.cust_id
+        AND c.CallDate BETWEEN DATEADD(DAY, -7, r.RemovalDate) AND DATEADD(DAY, 7, r.RemovalDate)
+),
+ReEnrollCheck AS (
+    SELECT
+        r.cust_id,
+        r.RemovalDate,
+        CASE WHEN EXISTS (
+            SELECT 1 FROM vw_Salesforce_Autopay a2
+            INNER JOIN vw_Salesforce_BillingAccount ba2 ON a2.AccountID = ba2.ID
+            WHERE ba2.CustID = r.cust_id
+              AND a2.Action = 'Add'
+              AND a2.Created BETWEEN r.RemovalDate AND DATEADD(DAY, 60, r.RemovalDate)
+        ) THEN 1 ELSE 0 END AS ReEnrolledWithin60Days
+    FROM CardChangeRemovals r
+)
+SELECT
+    rc.cust_id,
+    rc.RemovalDate,
+    c.FlowEnd,
+    b.PastDue,
+    b.TotalDue,
+    b.Aging_1_30,
+    b.Aging_31_60,
+    b.Aging_61_90,
+    b.Aging_91_120,
+    b.Aging_120_plus
+FROM ReEnrollCheck rc
+INNER JOIN iSigma_Customer_Master c ON rc.cust_id = c.cust_id
+INNER JOIN iSigma_Customer_Master b ON rc.cust_id = b.cust_id  -- aging fields live on customer master (rows 97-105 from earlier schema pull)
+WHERE rc.ReEnrolledWithin60Days = 0
+  AND c.FlowEnd IS NOT NULL
+
+
+SELECT
+    rc.cust_id,
+    rc.RemovalDate,
+    c.FlowEnd,
+    c.PastDue,
+    c.TotalDue,
+    c.Aging_1_30,
+    c.Aging_31_60,
+    c.Aging_61_90,
+    c.Aging_91_120,
+    c.Aging_120_plus
+FROM ReEnrollCheck rc
+INNER JOIN iSigma_Customer_Master c ON rc.cust_id = c.cust_id
+WHERE rc.ReEnrolledWithin60Days = 0
+  AND c.FlowEnd IS NOT NULL
