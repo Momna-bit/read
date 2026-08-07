@@ -880,32 +880,32 @@ FROM ChurnedWithBalance
 
 
 
--- STEP 1: Baseline churn rate for a comparable population
--- Compare: customers active around the same time as our card-change removals,
--- checked ~60+ days later, same as our test group
+-- STEP 1 (corrected): Baseline 60-day churn rate for a comparable population
+-- Pick a reference date range matching the card-change removal window,
+-- take customers active on those dates, check churn ~60 days later
 
-WITH CardChangeRemovalDates AS (
-    -- Reuse: just the removal dates from our existing analysis, to know the comparison window
-    SELECT MIN(RemovalDate) AS MinDate, MAX(RemovalDate) AS MaxDate
-    FROM (
-        SELECT a.Created AS RemovalDate
-        FROM vw_Salesforce_Autopay a
-        WHERE a.Action = 'Remove'
-    ) x
+WITH ReferenceDates AS (
+    SELECT DISTINCT a.Created AS RefDate
+    FROM vw_Salesforce_Autopay a
+    WHERE a.Action = 'Remove'
+      AND a.Created BETWEEN '2026-01-01' AND '2026-07-01'  -- adjust to match your actual removal window
 ),
-BaselinePopulation AS (
+BaselineSample AS (
     SELECT
         c.cust_id,
+        r.RefDate,
         c.FlowStart,
         c.FlowEnd
-    FROM iSigma_Customer_Master c
-    WHERE c.Market = 'Texas'
-      AND c.CustomerType = 'Residential'
-      AND c.FlowStart < DATEADD(DAY, -60, GETDATE())  -- must have had at least 60 days to churn
+    FROM ReferenceDates r
+    INNER JOIN iSigma_Customer_Master c
+        ON c.Market = 'Texas'
+       AND c.CustomerType = 'Residential'
+       AND c.FlowStart < r.RefDate  -- must have been an existing customer as of that date
+       AND (c.FlowEnd IS NULL OR c.FlowEnd > r.RefDate)  -- must have been active on that date
 )
 SELECT
     COUNT(*) AS TotalBaselineCustomers,
-    SUM(CASE WHEN FlowEnd IS NOT NULL THEN 1 ELSE 0 END) AS ChurnedCount,
-    CAST(SUM(CASE WHEN FlowEnd IS NOT NULL THEN 1 ELSE 0 END) AS FLOAT)
+    SUM(CASE WHEN FlowEnd IS NOT NULL AND FlowEnd <= DATEADD(DAY, 60, RefDate) THEN 1 ELSE 0 END) AS ChurnedWithin60Days,
+    CAST(SUM(CASE WHEN FlowEnd IS NOT NULL AND FlowEnd <= DATEADD(DAY, 60, RefDate) THEN 1 ELSE 0 END) AS FLOAT)
         / COUNT(*) * 100.0 AS ChurnRatePct
-FROM BaselinePopulation
+FROM BaselineSample
