@@ -666,3 +666,13 @@ SELECT
 FROM ReEnrollCheck rc
 INNER JOIN iSigma_Customer_Master c ON rc.cust_id = c.cust_id
 WHERE rc.ReEnrolledWithin60Days = 0
+
+
+
+SELECT
+    CASE WHEN c.FlowEnd IS NOT NULL THEN 'Churned' ELSE 'Still Active' END AS CustomerStatus,
+    COUNT(*) AS CustomerCount
+FROM ReEnrollCheck rc
+INNER JOIN iSigma_Customer_Master c ON rc.cust_id = c.cust_id
+WHERE rc.ReEnrolledWithin60Days = 0
+GROUP BY CASE WHEN c.FlowEnd IS NOT NULL THEN 'Churned' ELSE 'Still Active' END
