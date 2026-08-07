@@ -591,34 +591,8 @@ FROM FeatureSet f
 
 
 
--- STEP 1: Identify card-change autopay removals that did NOT re-enroll within 60 days
--- Then check current status: still active? paying? churned?
-
-WITH CardChangeRemovals AS (
-    SELECT
-        cust_id,
-        RemovalDate  -- adjust to actual column name once confirmed
-    FROM vw_Salesforce_Autopay
-    WHERE RemovalReason LIKE '%card%'  -- adjust filter to match how card-change removals were originally identified
-),
-ReEnrollCheck AS (
-    SELECT
-        r.cust_id,
-        r.RemovalDate,
-        CASE WHEN EXISTS (
-            SELECT 1 FROM vw_Salesforce_Autopay a
-            WHERE a.cust_id = r.cust_id
-              AND a.EnrollDate BETWEEN r.RemovalDate AND DATEADD(DAY, 60, r.RemovalDate)
-        ) THEN 1 ELSE 0 END AS ReEnrolledWithin60Days
-    FROM CardChangeRemovals r
-)
-SELECT
-    rc.cust_id,
-    rc.RemovalDate,
-    c.FlowEnd,  -- NULL = still active
-    c.Status,
-    c.AutoPayOn
-FROM ReEnrollCheck rc
-INNER JOIN iSigma_Customer_Master c ON rc.cust_id = c.cust_id
-WHERE rc.ReEnrolledWithin60Days = 0
+SELECT COLUMN_NAME, DATA_TYPE
+FROM INFORMATION_SCHEMA.COLUMNS
+WHERE TABLE_NAME = 'vw_Salesforce_Autopay'
+ORDER BY ORDINAL_POSITION
 
