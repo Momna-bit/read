@@ -609,16 +609,16 @@ SELECT DISTINCT Action FROM vw_Salesforce_Autopay
 
 
 -- STEP 1: Identify card-change autopay removals via call.summary keyword search
--- Bridge Salesforce AccountID -> cust_id via vw_Salesforce_BillingAccount
+-- Join Care_CallAI -> ContactID -> vw_Care_CustomerContact -> CustID (same pattern as Task 7)
 -- Then check which of those customers did NOT re-enroll within 60 days
 
 WITH CardChangeCalls AS (
     SELECT DISTINCT
-        ba.CustID AS cust_id,
-        ca.Date AS CallDate
+        cc.CustID AS cust_id,
+        cc.CallDate
     FROM dbo.Care_CallAI ca
-    INNER JOIN vw_Salesforce_BillingAccount ba
-        ON ca.AccountID = ba.ID  -- adjust join key once confirmed which field on Care_CallAI holds the Salesforce AccountID
+    INNER JOIN vw_Care_CustomerContact cc
+        ON ca.ContactID = cc.ContactID
     WHERE ca.[call.summary] LIKE '%expired card%'
        OR ca.[call.summary] LIKE '%lost%card%'
        OR ca.[call.summary] LIKE '%cancel%card%'
@@ -636,7 +636,6 @@ AutopayRemovals AS (
     WHERE a.Action = 'Remove'
 ),
 CardChangeRemovals AS (
-    -- Only keep removals that had a matching card-change call within a reasonable window (e.g. +/- 7 days)
     SELECT DISTINCT
         r.cust_id,
         r.RemovalDate
@@ -661,9 +660,9 @@ ReEnrollCheck AS (
 SELECT
     rc.cust_id,
     rc.RemovalDate,
-    c.FlowEnd,       -- NULL = still active
+    c.FlowEnd,      -- NULL = still active
     c.Status,
-    c.AutoPayOn
+    c.Waiver        -- 'Autopay' = currently on autopay
 FROM ReEnrollCheck rc
 INNER JOIN iSigma_Customer_Master c ON rc.cust_id = c.cust_id
 WHERE rc.ReEnrolledWithin60Days = 0
