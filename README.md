@@ -909,3 +909,12 @@ SELECT
     CAST(SUM(CASE WHEN FlowEnd IS NOT NULL AND FlowEnd <= DATEADD(DAY, 60, RefDate) THEN 1 ELSE 0 END) AS FLOAT)
         / COUNT(*) * 100.0 AS ChurnRatePct
 FROM BaselineSample
+
+
+
+SELECT
+    COUNT_BIG(*) AS TotalBaselineCustomers,
+    SUM(CAST(CASE WHEN FlowEnd IS NOT NULL AND FlowEnd <= DATEADD(DAY, 60, RefDate) THEN 1 ELSE 0 END AS BIGINT)) AS ChurnedWithin60Days,
+    CAST(SUM(CAST(CASE WHEN FlowEnd IS NOT NULL AND FlowEnd <= DATEADD(DAY, 60, RefDate) THEN 1 ELSE 0 END AS BIGINT)) AS FLOAT)
+        / COUNT_BIG(*) * 100.0 AS ChurnRatePct
+FROM BaselineSample
