@@ -1011,3 +1011,44 @@ SELECT
 FROM NonReEnrolled
 WHERE CreditScore IS NOT NULL AND CreditScore != 0
 GROUP BY CASE WHEN FlowEnd IS NOT NULL THEN 'Churned' ELSE 'Still Active' END
+
+
+
+
+WITH CardChangeCalls AS (
+    SELECT DISTINCT
+        cc.CustID AS cust_id,
+        cc.CallDate
+    FROM dbo.Care_CallAI ca
+    INNER JOIN vw_Care_CustomerContact cc
+        ON ca.ContactID = cc.ContactID
+    WHERE ca.[call.summary] LIKE '%expired card%'
+       OR ca.[call.summary] LIKE '%lost%card%'
+       OR ca.[call.summary] LIKE '%cancel%card%'
+       OR ca.[call.summary] LIKE '%new card%'
+       OR ca.[call.summary] LIKE '%update%card%'
+       OR ca.[call.summary] LIKE '%update%payment method%'
+),
+AutopayRemovals AS (
+    SELECT
+        ba.CustID AS cust_id,
+        a.Created AS RemovalDate
+    FROM vw_Salesforce_Autopay a
+    INNER JOIN vw_Salesforce_BillingAccount ba
+        ON a.AccountID = ba.ID
+    WHERE a.Action = 'Remove'
+),
+CardChangeRemovals AS (
+    SELECT DISTINCT
+        r.cust_id,
+        r.RemovalDate
+    FROM AutopayRemovals r
+    INNER JOIN CardChangeCalls c
+        ON r.cust_id = c.cust_id
+        AND c.CallDate BETWEEN DATEADD(DAY, -7, r.RemovalDate) AND DATEADD(DAY, 7, r.RemovalDate)
+)
+SELECT
+    MIN(RemovalDate) AS EarliestRemoval,
+    MAX(RemovalDate) AS LatestRemoval,
+    COUNT(*) AS TotalRemovals
+FROM CardChangeRemovals
