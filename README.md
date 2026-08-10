@@ -1283,3 +1283,17 @@ SELECT
 FROM Forecasted f
 JOIN Actual a ON a.CallDay = f.CallDay
 ORDER BY f.CallDay;
+
+
+
+-- Compare estimated vs. actual active customer count for one specific date
+DECLARE @CheckDate DATE = '2025-08-12';
+
+-- Direct, ground-truth count
+SELECT COUNT(*) AS TrueActiveCount
+FROM iSigma_Customer_Master
+WHERE Market = 'Texas' AND CustomerType = 'Residential'
+  AND FlowStart <= @CheckDate
+  AND (FlowEnd IS NULL OR FlowEnd > @CheckDate);
+
+
