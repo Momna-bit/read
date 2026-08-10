@@ -1297,3 +1297,13 @@ WHERE Market = 'Texas' AND CustomerType = 'Residential'
   AND (FlowEnd IS NULL OR FlowEnd > @CheckDate);
 
 
+
+
+SELECT
+    FORMAT(CAST(CallDate AS DATE), 'yyyy-MM') AS CallMonth,
+    COUNT(*) AS TotalCalls
+FROM dbo.IVR
+WHERE Department = 'Care' AND CallType IN ('Inbound', 'Transfer') AND AgentTalkTime > 0
+  AND CallDate >= DATEADD(MONTH, -13, GETDATE())
+GROUP BY FORMAT(CAST(CallDate AS DATE), 'yyyy-MM')
+ORDER BY CallMonth;
