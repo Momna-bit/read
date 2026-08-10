@@ -1307,3 +1307,22 @@ WHERE Department = 'Care' AND CallType IN ('Inbound', 'Transfer') AND AgentTalkT
   AND CallDate >= DATEADD(MONTH, -13, GETDATE())
 GROUP BY FORMAT(CAST(CallDate AS DATE), 'yyyy-MM')
 ORDER BY CallMonth;
+
+
+
+SeasonalIndex AS (
+    SELECT * FROM (VALUES
+        (1, 0.904),   -- January
+        (2, 0.932),   -- February
+        (3, 0.865),   -- March
+        (4, 0.774),   -- April
+        (5, 0.752),   -- May
+        (6, 0.915),   -- June
+        (7, 1.028),   -- July (averaged from two data points: 0.938 and 1.118)
+        (8, 1.354),   -- August
+        (9, 1.369),   -- September
+        (10, 1.268),  -- October
+        (11, 0.910),  -- November
+        (12, 0.900)   -- December
+    ) AS t(MonthNum, SeasonalIdx)
+),
