@@ -1052,3 +1052,85 @@ SELECT
     MAX(RemovalDate) AS LatestRemoval,
     COUNT(*) AS TotalRemovals
 FROM CardChangeRemovals
+
+
+
+
+
+-- ============================================================================
+-- STEP 1: 12-month backtest — forecasted calls vs. actual calls, day by day
+-- Covers the trailing 12 months of real IVR data
+-- ============================================================================
+
+WITH BaselineCount AS (
+    SELECT COUNT(*) AS BaselineCount
+    FROM iSigma_Customer_Master
+    WHERE Market = 'Texas' AND CustomerType = 'Residential'
+        AND FlowStart < '2022-07-01'
+        AND (FlowEnd IS NULL OR FlowEnd >= '2022-07-01')
+),
+ActiveDelta AS (
+    SELECT CAST(FlowStart AS DATE) AS EventDate, 1 AS Delta
+    FROM iSigma_Customer_Master
+    WHERE Market = 'Texas' AND CustomerType = 'Residential' AND FlowStart >= '2022-07-01'
+    UNION ALL
+    SELECT CAST(DATEADD(DAY, 1, FlowEnd) AS DATE) AS EventDate, -1 AS Delta
+    FROM iSigma_Customer_Master
+    WHERE Market = 'Texas' AND CustomerType = 'Residential' AND FlowEnd >= '2022-07-01'
+),
+DailyDelta AS (SELECT EventDate, SUM(Delta) AS NetChange FROM ActiveDelta GROUP BY EventDate),
+
+RecentRates AS (
+    SELECT * FROM (VALUES
+        (1, 0.000), (2, 6.703), (3, 5.254), (4, 4.826),
+        (5, 4.279), (6, 4.668), (7, 1.875)
+    ) AS t(DayNum, RecentRatePer1000)
+),
+SeasonalIndex AS (
+    SELECT * FROM (VALUES
+        (1, 1.107), (2, 1.214), (3, 1.049), (4, 0.931), (5, 0.928), (6, 0.955),
+        (7, 1.074), (8, 1.085), (9, 1.059), (10, 0.935), (11, 0.848), (12, 0.802)
+    ) AS t(MonthNum, SeasonalIdx)
+),
+
+Digits AS (SELECT n FROM (VALUES (0),(1),(2),(3),(4),(5),(6),(7),(8),(9)) AS d(n)),
+Numbers AS (SELECT (d1.n + d2.n*10 + d3.n*100) AS OffsetDay FROM Digits d1 CROSS JOIN Digits d2 CROSS JOIN Digits d3),
+CheckCalendar AS (
+    -- Trailing 12 months, ending yesterday (adjust end date as needed)
+    SELECT DATEADD(DAY, -OffsetDay, CAST(DATEADD(DAY, -1, GETDATE()) AS DATE)) AS CallDay
+    FROM Numbers WHERE OffsetDay < 365
+),
+
+ForecastActive AS (
+    SELECT cc.CallDay,
+        bc.BaselineCount + ISNULL((SELECT SUM(dd.NetChange) FROM DailyDelta dd WHERE dd.EventDate <= cc.CallDay), 0) AS ActiveCustomerCount
+    FROM CheckCalendar cc CROSS JOIN BaselineCount bc
+),
+
+Forecasted AS (
+    SELECT
+        fa.CallDay,
+        ROUND((rr.RecentRatePer1000 * si.SeasonalIdx / 1000.0) * fa.ActiveCustomerCount, 0) AS ForecastedCalls
+    FROM ForecastActive fa
+    JOIN RecentRates rr ON rr.DayNum = DATEPART(WEEKDAY, fa.CallDay)
+    JOIN SeasonalIndex si ON si.MonthNum = MONTH(fa.CallDay)
+),
+
+Actual AS (
+    SELECT CAST(CallDate AS DATE) AS CallDay, COUNT(*) AS ActualCalls
+    FROM dbo.IVR
+    WHERE Department = 'Care' AND CallType IN ('Inbound', 'Transfer') AND AgentTalkTime > 0
+    GROUP BY CAST(CallDate AS DATE)
+)
+
+SELECT
+    f.CallDay,
+    DATENAME(WEEKDAY, f.CallDay) AS DayOfWeek,
+    f.ForecastedCalls,
+    a.ActualCalls,
+    ROUND(100.0 * (a.ActualCalls - f.ForecastedCalls) / f.ForecastedCalls, 1) AS PctVariance,
+    CASE WHEN ABS(100.0 * (a.ActualCalls - f.ForecastedCalls) / f.ForecastedCalls) > 15
+        THEN 'INVESTIGATE' ELSE 'Within Range' END AS Flag
+FROM Forecasted f
+JOIN Actual a ON a.CallDay = f.CallDay
+ORDER BY f.CallDay;
