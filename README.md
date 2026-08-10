@@ -1134,3 +1134,72 @@ SELECT
 FROM Forecasted f
 JOIN Actual a ON a.CallDay = f.CallDay
 ORDER BY f.CallDay;
+
+
+
+
+-- ============================================================================
+-- STEP 2: Recalibrate day-of-week rates using the full 12-month actual history
+-- Replaces the single-week RecentRates table with a real 12-month average
+-- ============================================================================
+
+WITH BaselineCount AS (
+    SELECT COUNT(*) AS BaselineCount
+    FROM iSigma_Customer_Master
+    WHERE Market = 'Texas' AND CustomerType = 'Residential'
+        AND FlowStart < '2022-07-01'
+        AND (FlowEnd IS NULL OR FlowEnd >= '2022-07-01')
+),
+ActiveDelta AS (
+    SELECT CAST(FlowStart AS DATE) AS EventDate, 1 AS Delta
+    FROM iSigma_Customer_Master
+    WHERE Market = 'Texas' AND CustomerType = 'Residential' AND FlowStart >= '2022-07-01'
+    UNION ALL
+    SELECT CAST(DATEADD(DAY, 1, FlowEnd) AS DATE) AS EventDate, -1 AS Delta
+    FROM iSigma_Customer_Master
+    WHERE Market = 'Texas' AND CustomerType = 'Residential' AND FlowEnd >= '2022-07-01'
+),
+DailyDelta AS (SELECT EventDate, SUM(Delta) AS NetChange FROM ActiveDelta GROUP BY EventDate),
+
+Digits AS (SELECT n FROM (VALUES (0),(1),(2),(3),(4),(5),(6),(7),(8),(9)) AS d(n)),
+Numbers AS (SELECT (d1.n + d2.n*10 + d3.n*100) AS OffsetDay FROM Digits d1 CROSS JOIN Digits d2 CROSS JOIN Digits d3),
+HistoryCalendar AS (
+    SELECT DATEADD(DAY, -OffsetDay, CAST(DATEADD(DAY, -1, GETDATE()) AS DATE)) AS CallDay
+    FROM Numbers WHERE OffsetDay < 365
+),
+
+ActiveOnDay AS (
+    SELECT hc.CallDay,
+        bc.BaselineCount + ISNULL((SELECT SUM(dd.NetChange) FROM DailyDelta dd WHERE dd.EventDate <= hc.CallDay), 0) AS ActiveCustomerCount
+    FROM HistoryCalendar hc CROSS JOIN BaselineCount bc
+),
+
+ActualCalls AS (
+    SELECT CAST(CallDate AS DATE) AS CallDay, COUNT(*) AS ActualCalls
+    FROM dbo.IVR
+    WHERE Department = 'Care' AND CallType IN ('Inbound', 'Transfer') AND AgentTalkTime > 0
+    GROUP BY CAST(CallDate AS DATE)
+),
+
+DailyRate AS (
+    SELECT
+        ao.CallDay,
+        DATEPART(WEEKDAY, ao.CallDay) AS DayNum,
+        DATENAME(WEEKDAY, ao.CallDay) AS DayName,
+        ac.ActualCalls,
+        ao.ActiveCustomerCount,
+        (CAST(ac.ActualCalls AS FLOAT) / ao.ActiveCustomerCount) * 1000.0 AS RatePer1000
+    FROM ActiveOnDay ao
+    INNER JOIN ActualCalls ac ON ac.CallDay = ao.CallDay
+)
+
+SELECT
+    DayNum,
+    DayName,
+    COUNT(*) AS DaysObserved,
+    ROUND(AVG(RatePer1000), 3) AS AvgRatePer1000,
+    ROUND(MIN(RatePer1000), 3) AS MinRatePer1000,
+    ROUND(MAX(RatePer1000), 3) AS MaxRatePer1000
+FROM DailyRate
+GROUP BY DayNum, DayName
+ORDER BY DayNum;
