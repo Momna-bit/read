@@ -1203,3 +1203,18 @@ SELECT
 FROM DailyRate
 GROUP BY DayNum, DayName
 ORDER BY DayNum;
+
+
+
+
+RecentRates AS (
+    SELECT * FROM (VALUES
+        (1, 0.000),   -- Sunday: call center closed
+        (2, 7.485),   -- Monday
+        (3, 6.407),   -- Tuesday
+        (4, 5.582),   -- Wednesday
+        (5, 4.948),   -- Thursday
+        (6, 5.418),   -- Friday
+        (7, 2.238)    -- Saturday
+    ) AS t(DayNum, RecentRatePer1000)
+),
