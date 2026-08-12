@@ -165,4 +165,5 @@ py -m pip install scikit-learn
 py task7_logistic_regression.py
 
 
+Get-Content "Task7_FeatureSet_2026-08-12.csv" -TotalCount 1
 
