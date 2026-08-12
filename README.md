@@ -47,3 +47,7 @@ py -m pip list
 
 
 
+SELECT CalledWithin14Days, COUNT(*) AS RowCount
+FROM dbo.Task7_FeatureSet
+GROUP BY CalledWithin14Days
+
