@@ -443,3 +443,65 @@ df.to_csv(OUTPUT_PATH, index=False)
 
 print("\nDone. Open the output CSV to see CallLikelihoodPct for each customer-bill.")
 print("Next step: pick a cutoff percentage with Jonathan to decide who gets an alert.")
+
+
+
+
+"""
+Task 7 - Cutoff Analysis
+Summarizes the CallLikelihoodPct distribution from the scored dataset,
+and shows what happens at different cutoff thresholds - how many
+customers would get an alert, and what % of actual callers you'd catch.
+
+This is the output to bring to Jonathan when picking a cutoff.
+
+Run from PowerShell:
+    py task7_cutoff_analysis.py
+"""
+
+import pandas as pd
+
+INPUT_PATH = r"C:\Users\MAli\OneDrive - Just Energy Corp\Desktop\Task7_FeatureSet_Scored.csv"
+
+print("Loading scored data...")
+df = pd.read_csv(INPUT_PATH)
+print(f"Loaded {len(df):,} rows.\n")
+
+# ---- Overall distribution of scores ----
+print("CallLikelihoodPct distribution:")
+print(df["CallLikelihoodPct"].describe())
+
+# ---- Percentile breakdown ----
+print("\nPercentiles:")
+for p in [50, 75, 90, 95, 99]:
+    val = df["CallLikelihoodPct"].quantile(p / 100)
+    print(f"  {p}th percentile: {val:.2f}%")
+
+# ---- Cutoff table ----
+# For each candidate cutoff, show:
+#  - how many customers would get flagged
+#  - what % of the total population that is
+#  - how many actual callers are caught (recall)
+#  - what % of flagged customers actually called (precision)
+total = len(df)
+total_actual_callers = df["CalledWithin14Days"].sum()
+
+print("\nCutoff analysis:")
+print(f"{'Cutoff':>8} {'Flagged':>12} {'% of All':>10} {'Callers Caught':>16} {'Recall':>8} {'Precision':>10}")
+
+for cutoff in [5, 10, 15, 20, 25, 30, 40, 50]:
+    flagged = df[df["CallLikelihoodPct"] >= cutoff]
+    n_flagged = len(flagged)
+    pct_of_all = n_flagged / total * 100
+    callers_caught = flagged["CalledWithin14Days"].sum()
+    recall = callers_caught / total_actual_callers * 100 if total_actual_callers > 0 else 0
+    precision = callers_caught / n_flagged * 100 if n_flagged > 0 else 0
+    print(f"{cutoff:>7}% {n_flagged:>12,} {pct_of_all:>9.2f}% {callers_caught:>16,} {recall:>7.1f}% {precision:>9.1f}%")
+
+print("\nHow to read this:")
+print("- 'Flagged' = how many customer-bills would trigger an alert at that cutoff")
+print("- 'Recall' = what % of customers who actually called would have gotten an alert")
+print("- 'Precision' = of the customers who got an alert, what % actually called")
+print("- Lower cutoff = catches more real callers, but sends far more alerts overall")
+print("- Higher cutoff = fewer alerts, but misses more real callers")
+print("\nBring this table to Jonathan to help decide where to draw the line.")
