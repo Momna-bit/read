@@ -286,3 +286,16 @@ df.to_csv(OUTPUT_PATH, index=False)
 print("\nDone. Open the output CSV to see CallLikelihoodPct for each customer-bill.")
 print("Next step: pick a cutoff percentage with Jonathan to decide who gets an alert.")
 
+
+
+
+
+dtype_map = {
+    "cust_id": "float64",
+    "inv_amount": "float64",
+    "PersonalMedianCharge": "float64",
+    "BillIncreasePct": "float64",
+    "CreditScore": "float64",
+    "TenureDays": "float64",
+    "CalledWithin14Days": "float64",
+}
