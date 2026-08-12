@@ -318,3 +318,128 @@ print(f"Dropped {before - after:,} rows with missing values. {after:,} rows rema
 df["CreditScore"] = df["CreditScore"].astype("int64")
 df["TenureDays"] = df["TenureDays"].astype("int64")
 df["CalledWithin14Days"] = df["CalledWithin14Days"].astype("int64")
+
+
+
+
+"""
+Task 7 - Proactive Usage & Bill Shock Alert
+Fits a logistic regression to estimate each customer's likelihood of
+calling within 14 days of a bill, using bill increase %, credit score,
+and tenure as inputs. Outputs a per-row predicted probability (0-100%).
+
+Run from PowerShell:
+    py task7_logistic_regression.py
+"""
+
+import pandas as pd
+from sklearn.linear_model import LogisticRegression
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import roc_auc_score, classification_report
+
+# ---- STEP 1: Load the data ----
+# Update this path if your CSV lives somewhere else.
+INPUT_PATH = r"C:\Users\MAli\OneDrive - Just Energy Corp\Desktop\Task7_FeatureSet_2026-08-12.csv"
+OUTPUT_PATH = r"C:\Users\MAli\OneDrive - Just Energy Corp\Desktop\Task7_FeatureSet_Scored.csv"
+
+print("Loading data... (this may take a minute or two for 13M+ rows)")
+
+# Specify dtypes up front so pandas doesn't have to guess row-by-row,
+# which is much faster and uses less memory on a file this size.
+# Note: integer dtypes can't hold missing values (NaN), and this data has
+# some blanks. So we load numeric columns as float64 first (which can hold
+# NaN), drop incomplete rows in Step 2, then convert to int afterward.
+dtype_map = {
+    "cust_id": "float64",
+    "inv_amount": "float64",
+    "PersonalMedianCharge": "float64",
+    "BillIncreasePct": "float64",
+    "CreditScore": "float64",
+    "TenureDays": "float64",
+    "CalledWithin14Days": "float64",
+}
+
+# The CSV exported from SSMS does NOT include a header row - the first
+# line is already real data. So we tell pandas the column names directly,
+# in the same order as the original SQL query's SELECT list.
+column_names = [
+    "cust_id",
+    "Bill_Date",
+    "inv_amount",
+    "PersonalMedianCharge",
+    "BillIncreasePct",
+    "CreditScore",
+    "TenureDays",
+    "CalledWithin14Days",
+]
+
+df = pd.read_csv(
+    INPUT_PATH,
+    header=None,
+    names=column_names,
+    dtype=dtype_map,
+    parse_dates=["Bill_Date"],
+)
+
+print(f"Loaded {len(df):,} rows.")
+
+# ---- STEP 2: Clean up rows the model can't use ----
+# Drop rows with missing values in the columns we actually need.
+model_cols = ["BillIncreasePct", "CreditScore", "TenureDays", "CalledWithin14Days"]
+before = len(df)
+df = df.dropna(subset=model_cols)
+after = len(df)
+print(f"Dropped {before - after:,} rows with missing values. {after:,} rows remain.")
+
+# Now that missing rows are gone, convert these back to whole numbers.
+df["CreditScore"] = df["CreditScore"].astype("int64")
+df["TenureDays"] = df["TenureDays"].astype("int64")
+df["CalledWithin14Days"] = df["CalledWithin14Days"].astype("int64")
+
+# ---- STEP 3: Set up features (X) and label (y) ----
+X = df[["BillIncreasePct", "CreditScore", "TenureDays"]]
+y = df["CalledWithin14Days"]
+
+# ---- STEP 4: Train/test split ----
+# We hold out 20% of the data to check how well the model generalizes
+# to bills it hasn't seen before.
+X_train, X_test, y_train, y_test = train_test_split(
+    X, y, test_size=0.2, random_state=42, stratify=y
+)
+
+print(f"Training on {len(X_train):,} rows, testing on {len(X_test):,} rows.")
+
+# ---- STEP 5: Fit the logistic regression ----
+# class_weight='balanced' helps because only ~4% of bills result in a call -
+# without this, the model would just predict "no call" for everyone and
+# still be 96% "accurate" while being useless.
+model = LogisticRegression(max_iter=1000, class_weight="balanced")
+model.fit(X_train, y_train)
+
+# ---- STEP 6: Evaluate on the held-out test set ----
+y_pred_proba_test = model.predict_proba(X_test)[:, 1]
+auc = roc_auc_score(y_test, y_pred_proba_test)
+print(f"\nModel AUC on test set: {auc:.4f}  (0.5 = no better than chance, 1.0 = perfect)")
+
+y_pred_test = model.predict(X_test)
+print("\nClassification report on test set (using default 0.5 cutoff):")
+print(classification_report(y_test, y_pred_test, digits=3))
+
+# ---- STEP 7: Show what the model learned ----
+print("\nModel coefficients (higher = stronger positive relationship with calling):")
+for name, coef in zip(X.columns, model.coef_[0]):
+    print(f"  {name:20s} {coef:+.6f}")
+print(f"  {'Intercept':20s} {model.intercept_[0]:+.6f}")
+
+# ---- STEP 8: Score every row in the full dataset ----
+# This produces a percentage likelihood (0-100%) for every customer-bill,
+# not just the test set - this is what gets used to pick a cutoff later.
+print("\nScoring full dataset...")
+df["CallLikelihoodPct"] = model.predict_proba(X)[:, 1] * 100
+
+# ---- STEP 9: Save results ----
+print(f"Saving scored file to:\n{OUTPUT_PATH}")
+df.to_csv(OUTPUT_PATH, index=False)
+
+print("\nDone. Open the output CSV to see CallLikelihoodPct for each customer-bill.")
+print("Next step: pick a cutoff percentage with Jonathan to decide who gets an alert.")
