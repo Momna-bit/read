@@ -50,3 +50,10 @@ SELECT CalledWithin14Days, COUNT(*) AS RowCount
 FROM dbo.Task7_FeatureSet
 GROUP BY CalledWithin14Days
 
+
+SELECT 
+    COUNT(DISTINCT CreditScore) AS DistinctCreditScores,
+    AVG(BillIncreasePct) AS AvgBillIncreasePct,
+    SUM(CASE WHEN CalledWithin14Days = 1 THEN 1 ELSE 0 END) * 1.0 / COUNT(*) AS CallRate
+FROM dbo.Task7_FeatureSet
+
