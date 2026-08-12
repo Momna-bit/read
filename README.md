@@ -304,3 +304,17 @@ dtype_map = {
 df["CreditScore"] = df["CreditScore"].astype("int64")
 df["TenureDays"] = df["TenureDays"].astype("int64")
 df["CalledWithin14Days"] = df["CalledWithin14Days"].astype("int64")
+
+
+
+
+model_cols = ["BillIncreasePct", "CreditScore", "TenureDays", "CalledWithin14Days"]
+
+before = len(df)
+df = df.dropna(subset=model_cols)
+after = len(df)
+print(f"Dropped {before - after:,} rows with missing values. {after:,} rows remain.")
+
+df["CreditScore"] = df["CreditScore"].astype("int64")
+df["TenureDays"] = df["TenureDays"].astype("int64")
+df["CalledWithin14Days"] = df["CalledWithin14Days"].astype("int64")
