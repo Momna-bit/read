@@ -158,3 +158,11 @@ df.to_csv(OUTPUT_PATH, index=False)
 print("\nDone. Open the output CSV to see CallLikelihoodPct for each customer-bill.")
 print("Next step: pick a cutoff percentage with Jonathan to decide who gets an alert.")
 
+
+
+cd "$env:USERPROFILE\OneDrive - Just Energy Corp\Desktop"
+py -m pip install scikit-learn
+py task7_logistic_regression.py
+
+
+
