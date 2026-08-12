@@ -40,3 +40,10 @@ npm list react-dom
 npm run dev
 
 
+[Environment]::SetEnvironmentVariable("Path", $env:Path + ";C:\Users\MAli\AppData\Local\Programs\Python\Python313;C:\Users\MAli\AppData\Local\Programs\Python\Python313\Scripts", "User")
+
+
+py -m pip list
+
+
+
