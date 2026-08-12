@@ -299,3 +299,8 @@ dtype_map = {
     "TenureDays": "float64",
     "CalledWithin14Days": "float64",
 }
+
+
+df["CreditScore"] = df["CreditScore"].astype("int64")
+df["TenureDays"] = df["TenureDays"].astype("int64")
+df["CalledWithin14Days"] = df["CalledWithin14Days"].astype("int64")
