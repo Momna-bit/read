@@ -40,3 +40,59 @@ npm list react-dom
 npm run dev
 
 
+
+
+
+"""
+Bill PDF Audit Tool - Step 1: Inspect Raw Extraction
+Before we can check bills against the PUCT checklist, we need to see
+exactly what pdfplumber can pull out of a real bill PDF - the raw
+text, and any tables it can detect.
+
+Run from PowerShell:
+    py inspect_bill.py "C:\\path\\to\\your\\sample_bill.pdf"
+"""
+
+import sys
+import pdfplumber
+
+if len(sys.argv) < 2:
+    print("Usage: py inspect_bill.py \"path\\to\\bill.pdf\"")
+    sys.exit(1)
+
+PDF_PATH = sys.argv[1]
+
+print(f"Opening: {PDF_PATH}\n")
+
+with pdfplumber.open(PDF_PATH) as pdf:
+    print(f"Number of pages: {len(pdf.pages)}\n")
+
+    for page_num, page in enumerate(pdf.pages, start=1):
+        print("=" * 70)
+        print(f"PAGE {page_num}")
+        print("=" * 70)
+
+        # ---- STEP 1: Raw text, in reading order ----
+        print("\n--- RAW TEXT ---\n")
+        text = page.extract_text()
+        if text:
+            print(text)
+        else:
+            print("(No text found on this page - may be a scanned image)")
+
+        # ---- STEP 2: Any tables pdfplumber can detect ----
+        print("\n--- TABLES DETECTED ---\n")
+        tables = page.extract_tables()
+        if tables:
+            for t_num, table in enumerate(tables, start=1):
+                print(f"Table {t_num}:")
+                for row in table:
+                    print(row)
+                print()
+        else:
+            print("(No tables detected on this page)")
+
+        print("\n")
+
+print("Done. Review the output above to see what we're working with.")
+
