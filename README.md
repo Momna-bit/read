@@ -380,3 +380,10 @@ FROM INFORMATION_SCHEMA.COLUMNS
 WHERE TABLE_NAME = 'iSigma_Bill_Master'
 ORDER BY COLUMN_NAME;
 
+
+
+-- STEP 5: Confirm Bill_No and cust_id map to the real Acct # / Bill # from the PDF
+SELECT Bill_No, cust_id, Bill_Date
+FROM iSigma_Bill_Master
+WHERE Bill_No = '92604166649';
+
