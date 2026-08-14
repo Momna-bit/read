@@ -356,3 +356,21 @@ WHERE TABLE_NAME = 'iSigma_Customer_Master'
      OR COLUMN_NAME LIKE '%ID%'
       )
 ORDER BY COLUMN_NAME;
+
+-- STEP 3: Preview the actual values these fields hold
+SELECT DISTINCT CustomerType FROM iSigma_Customer_Master;
+
+SELECT DISTINCT Utility FROM iSigma_Customer_Master;
+
+-- STEP 4: Find the account number column in the Bill Master table
+SELECT COLUMN_NAME, DATA_TYPE
+FROM INFORMATION_SCHEMA.COLUMNS
+WHERE TABLE_NAME = 'iSigma_Bill_Master'
+  AND (
+        COLUMN_NAME LIKE '%Acct%'
+     OR COLUMN_NAME LIKE '%Account%'
+     OR COLUMN_NAME LIKE '%cust_id%'
+     OR COLUMN_NAME LIKE '%Bill%'
+      )
+ORDER BY COLUMN_NAME;
+
