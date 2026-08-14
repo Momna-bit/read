@@ -423,3 +423,32 @@ WHERE bm.Bill_No IN (
     -- add more Bill Numbers here as needed, comma-separated
 );
 
+
+
+SELECT
+    bm.Bill_No,
+    cm.CustomerType AS account_type,
+    CASE
+        WHEN cm.Utility = 'Centerpoint Energy' THEN 'Centerpoint'
+        WHEN cm.Utility = 'Oncor' THEN 'Oncor'
+        WHEN cm.Utility LIKE 'AEP Texas%' THEN 'AEP'
+        WHEN cm.Utility = 'Texas-New Mexico Power Co' THEN 'TNMP'
+        WHEN cm.Utility = 'Lubbock Power & Light' THEN 'Lubbock'
+        ELSE cm.Utility
+    END AS territory
+FROM iSigma_Bill_Master bm
+JOIN iSigma_Customer_Master cm
+    ON bm.cust_id = cm.cust_id
+WHERE bm.Bill_No IN (
+    -- Amigo (9)
+    '92604166649','92604163592','92604163600','92604166674',
+    '92604164716','92604161779','92604160535','92604166034','92604166256',
+    -- Tara (11)
+    '92604155403','92604155183','92604156426','92604155471',
+    '92604156277','92604157067','92604156399','92604137649',
+    '92604157095','92604156076','92604156887',
+    -- Just Energy (11)
+    '2604438376','2604436519','2604359528','2604376791','2604352721',
+    '2604439431','2604438995','2604362922','2604363680','2604368525','2604377890'
+);
+
