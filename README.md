@@ -400,3 +400,26 @@ JOIN iSigma_Customer_Master cm
     ON bm.cust_id = cm.cust_id
 WHERE bm.Bill_No = '92604166649';
 
+
+
+-- STEP 7: Batch version - generates manifest data for many bills at once
+SELECT
+    bm.Bill_No,
+    cm.CustomerType AS account_type,
+    CASE
+        WHEN cm.Utility = 'Centerpoint Energy' THEN 'Centerpoint'
+        WHEN cm.Utility = 'Oncor' THEN 'Oncor'
+        WHEN cm.Utility LIKE 'AEP Texas%' THEN 'AEP'
+        WHEN cm.Utility = 'Texas-New Mexico Power Co' THEN 'TNMP'
+        WHEN cm.Utility = 'Lubbock Power & Light' THEN 'Lubbock'
+        ELSE cm.Utility
+    END AS territory
+FROM iSigma_Bill_Master bm
+JOIN iSigma_Customer_Master cm
+    ON bm.cust_id = cm.cust_id
+WHERE bm.Bill_No IN (
+    '92604166649', '92604163592', '92604163600', '92604166674',
+    '92604164716', '92604161779', '92604160535', '92604166034', '92604166256'
+    -- add more Bill Numbers here as needed, comma-separated
+);
+
