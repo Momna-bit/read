@@ -319,3 +319,5 @@ if __name__ == "__main__":
 
 py check_bill_rules.py --batch "C:\Users\MAli\OneDrive - Just Energy Corp\Desktop\Bill pdf"
 
+py check_bill_rules.py --batch "C:\Users\MAli\OneDrive - Just Energy Corp\Desktop\Tara Commercial_Residential Invoices_All Utilities_Solar_Critical Care Message"
+py check_bill_rules.py --batch "C:\Users\MAli\OneDrive - Just Energy Corp\Desktop\JE Commercial_Residential Invoices_All Utilities_Solar and Critical Message"
