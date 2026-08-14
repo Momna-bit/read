@@ -317,4 +317,5 @@ if __name__ == "__main__":
 # ---------------------------------------------------------------------------
 
 
+py check_bill_rules.py --batch "C:\Users\MAli\OneDrive - Just Energy Corp\Desktop\Bill pdf"
 
