@@ -341,3 +341,18 @@ WHERE TABLE_NAME = 'iSigma_Customer_Master'
      OR COLUMN_NAME LIKE '%Market%'
       )
 ORDER BY COLUMN_NAME;
+
+
+
+-- STEP 2: Find the account/customer identifier column, and preview
+-- what values CustomerType and Utility actually hold
+SELECT COLUMN_NAME, DATA_TYPE
+FROM INFORMATION_SCHEMA.COLUMNS
+WHERE TABLE_NAME = 'iSigma_Customer_Master'
+  AND (
+        COLUMN_NAME LIKE '%cust_id%'
+     OR COLUMN_NAME LIKE '%Account%'
+     OR COLUMN_NAME LIKE '%Acct%'
+     OR COLUMN_NAME LIKE '%ID%'
+      )
+ORDER BY COLUMN_NAME;
