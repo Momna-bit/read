@@ -323,3 +323,4 @@ py check_bill_rules.py --batch "C:\Users\MAli\OneDrive - Just Energy Corp\Deskto
 py check_bill_rules.py --batch "C:\Users\MAli\OneDrive - Just Energy Corp\Desktop\JE Commercial_Residential Invoices_All Utilities_Solar and Critical Message"
 py check_bill_rules.py --batch "C:\Users\MAli\OneDrive - Just Energy Corp\Desktop\Amigoo Commercial_Residential Invoices_All Utilities_Solar_Critical Care Message"
 py check_bill_rules.py --batch "C:\Users\MAli\OneDrive - Just Energy Corp\Desktop\Tara Commercial_Residential Invoices_All Utilities_Solar_Critical Care Message"
+py check_bill_rules.py "C:\Users\MAli\OneDrive - Just Energy Corp\Desktop\Tara Commercial_Residential Invoices_All Utilities_Solar_Critical Care Message\Tara Residential Account_TNMP Utility_Critical Care Message 2206100154_92604156076_20260424.pdf" --account-type commercial --territory TNMP
