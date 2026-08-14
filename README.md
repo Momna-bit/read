@@ -387,3 +387,16 @@ SELECT Bill_No, cust_id, Bill_Date
 FROM iSigma_Bill_Master
 WHERE Bill_No = '92604166649';
 
+
+-- STEP 6: Full lookup - pull account type and utility for a given Bill #
+SELECT
+    bm.Bill_No,
+    bm.cust_id,
+    bm.Bill_Date,
+    cm.CustomerType,
+    cm.Utility
+FROM iSigma_Bill_Master bm
+JOIN iSigma_Customer_Master cm
+    ON bm.cust_id = cm.cust_id
+WHERE bm.Bill_No = '92604166649';
+
