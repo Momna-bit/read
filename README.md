@@ -550,3 +550,13 @@ SELECT
     MAX([Date]) AS LatestDate
 FROM Analytics_ConstellationWH.dbo.Care_CallAI
 WHERE [call.reasongranular] = 'Payment system issue';
+
+
+
+-- STEP 1: Find tables that likely hold interval-level queue stats
+SELECT TABLE_NAME
+FROM INFORMATION_SCHEMA.TABLES
+WHERE TABLE_NAME LIKE '%Queue%'
+   OR TABLE_NAME LIKE '%Interval%'
+   OR TABLE_NAME LIKE '%KPI%'
+ORDER BY TABLE_NAME;
