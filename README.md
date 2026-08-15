@@ -759,4 +759,5 @@ df.to_csv(output_path, index=False)
 print(f"Saved to {output_path}")
 
 
+Test-NetConnection -ComputerName zfhqgwsera3vhwc4ohwq3y.datawarehouse.fabric.microsoft.com -Port 1433
 
