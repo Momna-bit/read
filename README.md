@@ -693,4 +693,70 @@ FROM (
 ) x;
 
 
+# pull_interval_data.py
+# Pulls 15-minute interval call volume for the 10 forecastable Texas South queues
+# directly from Microsoft Fabric, saves to a local CSV for the forecast build.
+
+import pyodbc
+import pandas as pd
+
+# --- CONNECTION SETTINGS ---
+SERVER = "zfhqgwsera3vhwc4ohwq3y.datawarehouse.fabric.microsoft.com"
+DATABASE = "Analytics_ConstellationWH"
+
+conn_str = (
+    "Driver={ODBC Driver 18 for SQL Server};"
+    f"Server={SERVER};"
+    f"Database={DATABASE};"
+    "Authentication=ActiveDirectoryInteractive;"
+    "Encrypt=yes;"
+    "TrustServerCertificate=no;"
+)
+
+query = """
+SELECT 
+    Queue,
+    CAST(CallDate AS DATE) AS CallDay,
+    DATEADD(MINUTE, (DATEPART(MINUTE, CallDate) / 15) * 15, 
+        DATETIMEFROMPARTS(YEAR(CallDate), MONTH(CallDate), DAY(CallDate), 
+                           DATEPART(HOUR, CallDate), 0, 0, 0)) AS IntervalStart,
+    COUNT(*) AS CallVolume
+FROM dbo.IVR
+WHERE Queue IN (
+    'BillingResidentialENG - South',
+    'BillingResidentialSPA - South',
+    'ResidentialAdv_EnrollmentENG',
+    'ResidentialAdv_EnrollmentSPA',
+    'OTC_Outbound_FCC_Consent_No',
+    'ResiAdvHandlingENG',
+    'DNPResidentialENG - South',
+    'ResiAdvHandlingSPA',
+    'SPA_OTC_Outbound_FCC_Consent_No',
+    'DNPResidentialSPA - South'
+)
+AND CallDate >= DATEADD(DAY, -90, CAST(GETDATE() AS DATE))
+GROUP BY 
+    Queue,
+    CAST(CallDate AS DATE),
+    DATEADD(MINUTE, (DATEPART(MINUTE, CallDate) / 15) * 15, 
+        DATETIMEFROMPARTS(YEAR(CallDate), MONTH(CallDate), DAY(CallDate), 
+                           DATEPART(HOUR, CallDate), 0, 0, 0))
+ORDER BY Queue, IntervalStart;
+"""
+
+print("Connecting to Fabric... (a Microsoft login window should pop up)")
+conn = pyodbc.connect(conn_str)
+
+print("Running query (this may take a minute for 90 days x 10 queues)...")
+df = pd.read_sql(query, conn)
+conn.close()
+
+print(f"Pulled {len(df):,} rows.")
+print(df.head())
+
+output_path = "interval_call_data.csv"
+df.to_csv(output_path, index=False)
+print(f"Saved to {output_path}")
+
+
 
