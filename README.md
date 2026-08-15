@@ -585,3 +585,15 @@ WHERE TABLE_NAME LIKE '%KPI%'
    OR TABLE_NAME LIKE '%Stat%'
 ORDER BY TABLE_NAME;
 
+
+-- STEP 4: Check dbo.IVR's columns for a queue field and a precise timestamp
+SELECT COLUMN_NAME, DATA_TYPE
+FROM INFORMATION_SCHEMA.COLUMNS
+WHERE TABLE_NAME = 'IVR'
+  AND (
+        COLUMN_NAME LIKE '%Queue%'
+     OR COLUMN_NAME LIKE '%Date%'
+     OR COLUMN_NAME LIKE '%Time%'
+      )
+ORDER BY COLUMN_NAME;
+
