@@ -619,3 +619,36 @@ FROM dbo.IVR
 WHERE Queue IS NOT NULL
 GROUP BY Queue
 ORDER BY Queue;
+
+
+
+-- STEP 7: Pull recent call volume for the 17 confirmed Texas South Care queues
+SELECT 
+    Queue,
+    COUNT(*) AS CallCount,
+    MIN(CallDate) AS EarliestCall,
+    MAX(CallDate) AS LatestCall
+FROM dbo.IVR
+WHERE Queue IN (
+    'BillingResidentialENG - South',
+    'BillingResidentialSPA - South',
+    'DNPResidentialENG - South',
+    'DNPResidentialSPA - South',
+    'HEB Hotline South - ENG',
+    'HEB Hotline South - SPA',
+    'Kroger Hotline South - ENG',
+    'Kroger Hotline South - SPA',
+    'OTC_Outbound_FCC_Consent_No',
+    'OTC_Outbound_FCC_Consent_Yes_Active',
+    'ResiAdvHandlingENG',
+    'ResiAdvHandlingSPA',
+    'ResidentialAdv_EnrollmentENG',
+    'ResidentialAdv_EnrollmentSPA',
+    'Sams Club Hotline South-ENG',
+    'Sams Club Hotline South-SPA',
+    'SPA_OTC_Outbound_FCC_Consent_No'
+)
+AND CallDate >= DATEADD(DAY, -90, CAST(GETDATE() AS DATE))
+GROUP BY Queue
+ORDER BY CallCount DESC;
+
