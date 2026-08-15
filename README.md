@@ -1003,6 +1003,7 @@ for queue in df["Queue"].unique():
     )
     merged["CallVolume"] = merged["CallVolume"].fillna(0)
     merged["DayOfWeek"] = merged["CallDay"].dt.day_name()
+    merged["Queue"] = queue
 
     # --- Step 1: daily totals per day ---
     daily_totals = merged.groupby(["CallDay", "DayOfWeek"])["CallVolume"].sum().reset_index()
