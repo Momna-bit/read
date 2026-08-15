@@ -490,3 +490,21 @@ WHERE TABLE_NAME = 'Care_CallAI'
       )
 ORDER BY COLUMN_NAME;
 
+
+-- STEP 2: Find all distinct reason values containing "glitch" or "system"
+-- across the relevant classification columns
+SELECT DISTINCT [call.reasongranular], COUNT(*) AS CallCount
+FROM Analytics_Constellation.dbo.Care_CallAI
+WHERE [call.reasongranular] LIKE '%glitch%' OR [call.reasongranular] LIKE '%system%'
+GROUP BY [call.reasongranular]
+ORDER BY CallCount DESC;
+
+
+
+-- Also check the broader reason column and IVRIssues in case it's tagged there instead
+SELECT DISTINCT [call.reason], COUNT(*) AS CallCount
+FROM Analytics_Constellation.dbo.Care_CallAI
+WHERE [call.reason] LIKE '%glitch%' OR [call.reason] LIKE '%system%'
+GROUP BY [call.reason]
+ORDER BY CallCount DESC;
+
