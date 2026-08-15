@@ -969,3 +969,113 @@ print(by_queue.to_string(index=False))
 bt.to_csv("interval_forecast_backtest_results.csv", index=False)
 print()
 print("Saved full results to interval_forecast_backtest_results.csv")
+
+
+
+# backtest_hybrid_forecast.py
+# Hybrid approach: forecast the DAILY total call volume (day-of-week average,
+# leave-one-out), then split it across 15-min intervals using each interval's
+# historical % SHARE of the day's total (also leave-one-out). The idea: a
+# percentage share is more stable than a raw small interval count, so we
+# borrow the daily forecast's accuracy instead of fighting interval noise
+# head-on. Backtested the same honest way as the direct approach, so the
+# two MAPE numbers are directly comparable.
+
+import pandas as pd
+import numpy as np
+
+df = pd.read_csv("interval_call_data_clean.csv", parse_dates=["CallDay", "IntervalStart"])
+df["IntervalTime"] = df["IntervalStart"].dt.time
+
+results = []
+daily_accuracy_rows = []
+
+for queue in df["Queue"].unique():
+    q_data = df[df["Queue"] == queue].copy()
+    real_intervals = sorted(q_data["IntervalTime"].unique())
+    all_days = pd.date_range(q_data["CallDay"].min(), q_data["CallDay"].max(), freq="D")
+
+    grid = pd.MultiIndex.from_product([all_days, real_intervals], names=["CallDay", "IntervalTime"]).to_frame(index=False)
+    merged = grid.merge(
+        q_data[["CallDay", "IntervalTime", "CallVolume"]],
+        on=["CallDay", "IntervalTime"],
+        how="left"
+    )
+    merged["CallVolume"] = merged["CallVolume"].fillna(0)
+    merged["DayOfWeek"] = merged["CallDay"].dt.day_name()
+
+    # --- Step 1: daily totals per day ---
+    daily_totals = merged.groupby(["CallDay", "DayOfWeek"])["CallVolume"].sum().reset_index()
+    daily_totals = daily_totals.rename(columns={"CallVolume": "DailyTotal"})
+
+    # --- Step 2: leave-one-out DAILY forecast per day ---
+    daily_totals["DailyForecast"] = np.nan
+    for dow, group in daily_totals.groupby("DayOfWeek"):
+        total = group["DailyTotal"].sum()
+        n = len(group)
+        if n < 2:
+            continue
+        loo_forecast = (total - group["DailyTotal"]) / (n - 1)
+        daily_totals.loc[group.index, "DailyForecast"] = loo_forecast
+
+    # Track daily-level accuracy too, for reference
+    dt_valid = daily_totals.dropna(subset=["DailyForecast"])
+    dt_valid = dt_valid[dt_valid["DailyTotal"] > 0].copy()
+    dt_valid["APE"] = (dt_valid["DailyTotal"] - dt_valid["DailyForecast"]).abs() / dt_valid["DailyTotal"] * 100
+    daily_accuracy_rows.append({"Queue": queue, "DailyMAPE": dt_valid["APE"].mean(), "Days": len(dt_valid)})
+
+    # --- Step 3: interval SHARE of daily total, per row ---
+    merged = merged.merge(daily_totals[["CallDay", "DailyTotal"]], on="CallDay", how="left")
+    merged["Share"] = np.where(merged["DailyTotal"] > 0, merged["CallVolume"] / merged["DailyTotal"], 0)
+
+    # --- Step 4: leave-one-out SHARE forecast per (DayOfWeek, IntervalTime) ---
+    merged["ShareForecast"] = np.nan
+    for (dow, itime), group in merged.groupby(["DayOfWeek", "IntervalTime"]):
+        total_share = group["Share"].sum()
+        n = len(group)
+        if n < 2:
+            continue
+        loo_share = (total_share - group["Share"]) / (n - 1)
+        merged.loc[group.index, "ShareForecast"] = loo_share
+
+    # --- Step 5: combine into hybrid interval forecast ---
+    merged = merged.merge(daily_totals[["CallDay", "DailyForecast"]], on="CallDay", how="left")
+    merged["HybridForecast"] = merged["DailyForecast"] * merged["ShareForecast"]
+
+    results.append(merged[["Queue", "DayOfWeek", "IntervalTime", "CallDay", "CallVolume", "HybridForecast"]])
+
+hybrid_bt = pd.concat(results, ignore_index=True).dropna(subset=["HybridForecast"])
+hybrid_bt = hybrid_bt.rename(columns={"CallVolume": "Actual"})
+hybrid_bt["AbsError"] = (hybrid_bt["Actual"] - hybrid_bt["HybridForecast"]).abs()
+
+nonzero = hybrid_bt[hybrid_bt["Actual"] > 0].copy()
+nonzero["APE"] = nonzero["AbsError"] / nonzero["Actual"] * 100
+nonzero["Within15pct"] = nonzero["APE"] <= 15
+
+print("=== HYBRID METHOD: daily forecast x interval share ===")
+print(f"Backtested {len(hybrid_bt):,} interval-days across {hybrid_bt['Queue'].nunique()} queues.")
+print()
+print(f"Overall MAPE: {nonzero['APE'].mean():.1f}%")
+print(f"% of intervals within 15% of actual: {100 * nonzero['Within15pct'].mean():.1f}%")
+print()
+
+print("=== Accuracy by queue (hybrid method) ===")
+by_queue = nonzero.groupby("Queue").agg(
+    MAPE=("APE", "mean"),
+    Within15pct=("Within15pct", "mean"),
+    IntervalCount=("APE", "count")
+).reset_index()
+by_queue["MAPE"] = by_queue["MAPE"].round(1)
+by_queue["Within15pct"] = (by_queue["Within15pct"] * 100).round(1)
+by_queue = by_queue.sort_values("MAPE")
+print(by_queue.to_string(index=False))
+
+print()
+print("=== For reference: daily-total-only accuracy per queue ===")
+daily_acc = pd.DataFrame(daily_accuracy_rows)
+daily_acc["DailyMAPE"] = daily_acc["DailyMAPE"].round(1)
+print(daily_acc.sort_values("DailyMAPE").to_string(index=False))
+
+hybrid_bt.to_csv("hybrid_forecast_backtest_results.csv", index=False)
+print()
+print("Saved to hybrid_forecast_backtest_results.csv")
