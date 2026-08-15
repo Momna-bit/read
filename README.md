@@ -529,3 +529,24 @@ FROM Analytics_ConstellationWH.dbo.Care_CallAI
 WHERE [call.reasongranular] = 'Payment system issue'
 GROUP BY [Date]
 ORDER BY CallDay;
+
+
+
+-- STEP 4: Confirm the three spike days precisely, plus overall context
+SELECT
+    [Date] AS CallDay,
+    COUNT(*) AS CallCount
+FROM Analytics_ConstellationWH.dbo.Care_CallAI
+WHERE [call.reasongranular] = 'Payment system issue'
+  AND [Date] IN ('2026-04-27', '2026-07-07', '2026-08-12')
+GROUP BY [Date]
+ORDER BY CallDay;
+
+
+-- STEP 5: Total "Payment system issue" calls across the whole period, for framing
+SELECT
+    COUNT(*) AS TotalPaymentSystemCalls,
+    MIN([Date]) AS EarliestDate,
+    MAX([Date]) AS LatestDate
+FROM Analytics_ConstellationWH.dbo.Care_CallAI
+WHERE [call.reasongranular] = 'Payment system issue';
