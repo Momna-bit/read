@@ -885,3 +885,87 @@ print("(These will have less reliable forecasts -- worth flagging in the deck.)"
 forecast_table.to_csv("interval_forecast_baseline.csv", index=False)
 print()
 print("Saved to interval_forecast_baseline.csv")
+
+
+
+# backtest_interval_forecast.py
+# Leave-one-out backtest: for every real day in the data, the forecast for
+# that day is built using ONLY the other weeks of that day-of-week + interval
+# (excluding the day itself), then compared against what actually happened.
+# This avoids the circular-logic problem of testing a forecast against the
+# same data it was averaged from.
+
+import pandas as pd
+import numpy as np
+
+df = pd.read_csv("interval_call_data_clean.csv", parse_dates=["CallDay", "IntervalStart"])
+df["IntervalTime"] = df["IntervalStart"].dt.time
+
+backtest_rows = []
+
+for queue in df["Queue"].unique():
+    q_data = df[df["Queue"] == queue].copy()
+
+    real_intervals = sorted(q_data["IntervalTime"].unique())
+    all_days = pd.date_range(q_data["CallDay"].min(), q_data["CallDay"].max(), freq="D")
+
+    grid = pd.MultiIndex.from_product([all_days, real_intervals], names=["CallDay", "IntervalTime"]).to_frame(index=False)
+    merged = grid.merge(
+        q_data[["CallDay", "IntervalTime", "CallVolume"]],
+        on=["CallDay", "IntervalTime"],
+        how="left"
+    )
+    merged["CallVolume"] = merged["CallVolume"].fillna(0)
+    merged["DayOfWeek"] = merged["CallDay"].dt.day_name()
+
+    # For each (DayOfWeek, IntervalTime) group, do leave-one-out:
+    # forecast for row i = average of all OTHER rows in that same group
+    for (dow, itime), group in merged.groupby(["DayOfWeek", "IntervalTime"]):
+        vols = group["CallVolume"].values
+        n = len(vols)
+        if n < 2:
+            continue  # can't leave one out with fewer than 2 data points
+
+        total = vols.sum()
+        for idx, actual in zip(group.index, vols):
+            loo_forecast = (total - actual) / (n - 1)  # average excluding this day
+            backtest_rows.append({
+                "Queue": queue,
+                "DayOfWeek": dow,
+                "IntervalTime": itime,
+                "CallDay": merged.loc[idx, "CallDay"],
+                "Actual": actual,
+                "Forecast": round(loo_forecast, 2)
+            })
+
+bt = pd.DataFrame(backtest_rows)
+bt["AbsError"] = (bt["Actual"] - bt["Forecast"]).abs()
+
+# MAPE only makes sense where Actual > 0 -- otherwise it's undefined (divide by zero)
+nonzero = bt[bt["Actual"] > 0].copy()
+nonzero["APE"] = (nonzero["AbsError"] / nonzero["Actual"]) * 100
+nonzero["Within15pct"] = nonzero["APE"] <= 15
+
+print(f"Backtested {len(bt):,} interval-days across {bt['Queue'].nunique()} queues.")
+print(f"({len(bt) - len(nonzero):,} were true zero-call intervals -- excluded from % error, since % error is undefined at zero.)")
+print()
+
+print("=== Overall accuracy (all queues combined, non-zero intervals only) ===")
+print(f"MAPE: {nonzero['APE'].mean():.1f}%")
+print(f"% of intervals within 15% of actual: {100 * nonzero['Within15pct'].mean():.1f}%")
+print()
+
+print("=== Accuracy by queue ===")
+by_queue = nonzero.groupby("Queue").agg(
+    MAPE=("APE", "mean"),
+    Within15pct=("Within15pct", "mean"),
+    IntervalCount=("APE", "count")
+).reset_index()
+by_queue["MAPE"] = by_queue["MAPE"].round(1)
+by_queue["Within15pct"] = (by_queue["Within15pct"] * 100).round(1)
+by_queue = by_queue.sort_values("MAPE")
+print(by_queue.to_string(index=False))
+
+bt.to_csv("interval_forecast_backtest_results.csv", index=False)
+print()
+print("Saved full results to interval_forecast_backtest_results.csv")
