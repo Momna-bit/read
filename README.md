@@ -795,3 +795,93 @@ df.to_csv("interval_call_data_clean.csv", index=False)
 print()
 print("Saved cleaned version to interval_call_data_clean.csv")
 
+
+
+# build_interval_forecast.py
+# Builds a baseline 15-minute interval call forecast per queue, using
+# day-of-week + time-of-day historical averages -- the same core idea
+# that worked for the daily call forecast, applied at interval granularity.
+#
+# IMPORTANT: the raw data only contains rows where at least 1 call happened.
+# If we just averaged those rows directly, we'd silently ignore every
+# zero-call interval and inflate the forecast. This script fixes that by
+# building a full grid (every real day x every real interval-of-day for
+# that queue) and filling in true zeros before averaging.
+
+import pandas as pd
+
+df = pd.read_csv("interval_call_data_clean.csv", parse_dates=["CallDay", "IntervalStart"])
+
+# Pull just the time-of-day portion (e.g. "08:00:00") from IntervalStart
+df["IntervalTime"] = df["IntervalStart"].dt.time
+
+results = []
+
+for queue in df["Queue"].unique():
+    q_data = df[df["Queue"] == queue].copy()
+
+    # Define this queue's real operating window: every 15-min time-of-day
+    # that has EVER shown up in the data for this queue (not a guessed
+    # business-hours window -- built from what actually happened).
+    real_intervals = sorted(q_data["IntervalTime"].unique())
+
+    # Define the full date range this queue has data for
+    all_days = pd.date_range(q_data["CallDay"].min(), q_data["CallDay"].max(), freq="D")
+
+    # Build the full grid: every day x every real interval-of-day
+    grid = pd.MultiIndex.from_product([all_days, real_intervals], names=["CallDay", "IntervalTime"]).to_frame(index=False)
+
+    # Bring in actual call volumes; anything not matched becomes a true zero
+    merged = grid.merge(
+        q_data[["CallDay", "IntervalTime", "CallVolume"]],
+        on=["CallDay", "IntervalTime"],
+        how="left"
+    )
+    merged["CallVolume"] = merged["CallVolume"].fillna(0)
+    merged["DayOfWeek"] = merged["CallDay"].dt.day_name()
+
+    # Now average by day-of-week + interval-of-day -- this average correctly
+    # includes the zero-call intervals we filled in above
+    summary = merged.groupby(["DayOfWeek", "IntervalTime"])["CallVolume"].agg(
+        ForecastVolume="mean",
+        StdDev="std",
+        SampleSize="count"
+    ).reset_index()
+    summary["Queue"] = queue
+
+    results.append(summary)
+
+forecast_table = pd.concat(results, ignore_index=True)
+
+# Round forecast to something readable, keep std for honest uncertainty disclosure
+forecast_table["ForecastVolume"] = forecast_table["ForecastVolume"].round(2)
+forecast_table["StdDev"] = forecast_table["StdDev"].round(2)
+
+# Reorder columns
+forecast_table = forecast_table[["Queue", "DayOfWeek", "IntervalTime", "ForecastVolume", "StdDev", "SampleSize"]]
+
+# Sort for readability
+day_order = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+forecast_table["DayOfWeek"] = pd.Categorical(forecast_table["DayOfWeek"], categories=day_order, ordered=True)
+forecast_table = forecast_table.sort_values(["Queue", "DayOfWeek", "IntervalTime"])
+
+print(f"Built forecast table with {len(forecast_table):,} rows (Queue x DayOfWeek x Interval combos).")
+print()
+print("Sample -- BillingResidentialENG - South, Tuesdays:")
+sample = forecast_table[
+    (forecast_table["Queue"] == "BillingResidentialENG - South") &
+    (forecast_table["DayOfWeek"] == "Tuesday")
+]
+print(sample.head(15).to_string(index=False))
+print()
+
+# Flag low-sample-size combos -- these are the ones where we don't have
+# enough history to trust the average yet (honest coverage disclosure)
+low_sample = forecast_table[forecast_table["SampleSize"] < 8]
+print(f"Combos with fewer than 8 weeks of data: {len(low_sample):,} out of {len(forecast_table):,} "
+      f"({100 * len(low_sample) / len(forecast_table):.1f}%)")
+print("(These will have less reliable forecasts -- worth flagging in the deck.)")
+
+forecast_table.to_csv("interval_forecast_baseline.csv", index=False)
+print()
+print("Saved to interval_forecast_baseline.csv")
