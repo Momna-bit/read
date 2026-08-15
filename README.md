@@ -519,3 +519,13 @@ WHERE TABLE_NAME = 'Care_CallAI'
      OR COLUMN_NAME LIKE '%Date%'
       )
 ORDER BY COLUMN_NAME;
+
+
+-- STEP 3 (corrected): Check if "Payment system issue" calls cluster by date
+SELECT
+    [Date] AS CallDay,
+    COUNT(*) AS CallCount
+FROM Analytics_ConstellationWH.dbo.Care_CallAI
+WHERE [call.reasongranular] = 'Payment system issue'
+GROUP BY [Date]
+ORDER BY CallDay;
