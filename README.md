@@ -652,3 +652,45 @@ AND CallDate >= DATEADD(DAY, -90, CAST(GETDATE() AS DATE))
 GROUP BY Queue
 ORDER BY CallCount DESC;
 
+-- STEP 8: Build 15-minute interval buckets for the 10 forecastable Texas South queues
+SELECT 
+    Queue,
+    CAST(CallDate AS DATE) AS CallDay,
+    DATEADD(MINUTE, (DATEPART(MINUTE, CallDate) / 15) * 15, 
+        DATETIMEFROMPARTS(YEAR(CallDate), MONTH(CallDate), DAY(CallDate), 
+                           DATEPART(HOUR, CallDate), 0, 0, 0)) AS IntervalStart,
+    COUNT(*) AS CallVolume
+FROM dbo.IVR
+WHERE Queue IN (
+    'BillingResidentialENG - South',
+    'BillingResidentialSPA - South',
+    'ResidentialAdv_EnrollmentENG',
+    'ResidentialAdv_EnrollmentSPA',
+    'OTC_Outbound_FCC_Consent_No',
+    'ResiAdvHandlingENG',
+    'DNPResidentialENG - South',
+    'ResiAdvHandlingSPA',
+    'SPA_OTC_Outbound_FCC_Consent_No',
+    'DNPResidentialSPA - South'
+)
+AND CallDate >= DATEADD(DAY, -90, CAST(GETDATE() AS DATE))
+GROUP BY 
+    Queue,
+    CAST(CallDate AS DATE),
+    DATEADD(MINUTE, (DATEPART(MINUTE, CallDate) / 15) * 15, 
+        DATETIMEFROMPARTS(YEAR(CallDate), MONTH(CallDate), DAY(CallDate), 
+                           DATEPART(HOUR, CallDate), 0, 0, 0))
+ORDER BY Queue, IntervalStart;
+
+
+-- Quick sanity check: just look at one busy day for one queue first
+SELECT TOP 30 *
+FROM (
+    -- paste the STEP 8 query here as a subquery, or just add this WHERE to STEP 8 directly:
+    -- AND Queue = 'BillingResidentialENG - South'
+    -- AND CAST(CallDate AS DATE) = '2026-08-13'
+    SELECT 1 AS placeholder
+) x;
+
+
+
