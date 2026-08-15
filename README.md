@@ -597,3 +597,15 @@ WHERE TABLE_NAME = 'IVR'
       )
 ORDER BY COLUMN_NAME;
 
+
+-- STEP 5: Pull a sample of rows to inspect real values in the key columns
+SELECT TOP 20
+    CallDate,
+    TimeMinutes,
+    Queue,
+    FinalQueue,
+    Time,
+    QueueTime
+FROM dbo.IVR
+ORDER BY CallDate DESC;
+
