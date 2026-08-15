@@ -452,3 +452,25 @@ WHERE bm.Bill_No IN (
     '2604439431','2604438995','2604362922','2604363680','2604368525','2604377890'
 );
 
+
+
+-- STEP 1: Repeat-caller day-of-week pattern (July 2026, same month/definition as the original 28.27% finding)
+WITH ConnectedCalls AS (
+    SELECT AccountNumber, CAST(CallDate AS DATE) AS CallDay,
+        COUNT(DISTINCT InitialContact) AS Calls
+    FROM Analytics_ConstellationWH.dbo.IVR
+    WHERE Department = 'CARE' AND CallType IN ('INBOUND', 'Transfer')
+        AND CAST(CallDate AS DATE) >= '2026-07-01' AND CAST(CallDate AS DATE) < '2026-08-01'
+        AND AccountNumber IS NOT NULL
+        AND VerificationStatus NOT IN ('Abandoned', 'Not Attempted')
+    GROUP BY AccountNumber, CAST(CallDate AS DATE)
+)
+SELECT
+    DATENAME(WEEKDAY, CallDay) AS DayOfWeek,
+    DATEPART(WEEKDAY, CallDay) AS DayNum,
+    COUNT(*) AS TotalCallDays,
+    SUM(CASE WHEN Calls >= 2 THEN 1 ELSE 0 END) AS RepeatCallDays,
+    ROUND(100.0 * SUM(CASE WHEN Calls >= 2 THEN 1 ELSE 0 END) / COUNT(*), 2) AS RepeatRatePct
+FROM ConnectedCalls
+GROUP BY DATENAME(WEEKDAY, CallDay), DATEPART(WEEKDAY, CallDay)
+ORDER BY DayNum;
