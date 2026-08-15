@@ -510,12 +510,12 @@ ORDER BY CallCount DESC;
 
 
 
--- STEP 3: Check if "Payment system issue" calls cluster by date (spike vs. steady)
-SELECT
-    CAST(CallDate AS DATE) AS CallDay,
-    COUNT(*) AS CallCount
-FROM Analytics_ConstellationWH.dbo.Care_CallAI
-WHERE [call.reasongranular] = 'Payment system issue'
-GROUP BY CAST(CallDate AS DATE)
-ORDER BY CallDay;
-
+-- STEP 3a: Find the actual date column name on Care_CallAI
+SELECT COLUMN_NAME, DATA_TYPE
+FROM INFORMATION_SCHEMA.COLUMNS
+WHERE TABLE_NAME = 'Care_CallAI'
+  AND (
+        COLUMN_NAME LIKE '%date%'
+     OR COLUMN_NAME LIKE '%Date%'
+      )
+ORDER BY COLUMN_NAME;
