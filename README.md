@@ -474,3 +474,19 @@ SELECT
 FROM ConnectedCalls
 GROUP BY DATENAME(WEEKDAY, CallDay), DATEPART(WEEKDAY, CallDay)
 ORDER BY DayNum;
+
+
+-- STEP 1: Find the column that holds call reason / complaint category tags
+SELECT COLUMN_NAME, DATA_TYPE
+FROM INFORMATION_SCHEMA.COLUMNS
+WHERE TABLE_NAME = 'Care_CallAI'
+  AND (
+        COLUMN_NAME LIKE '%Reason%'
+     OR COLUMN_NAME LIKE '%Category%'
+     OR COLUMN_NAME LIKE '%Complaint%'
+     OR COLUMN_NAME LIKE '%Tag%'
+     OR COLUMN_NAME LIKE '%Classif%'
+     OR COLUMN_NAME LIKE '%Issue%'
+      )
+ORDER BY COLUMN_NAME;
+
