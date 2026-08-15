@@ -508,3 +508,14 @@ WHERE [call.reason] LIKE '%glitch%' OR [call.reason] LIKE '%system%'
 GROUP BY [call.reason]
 ORDER BY CallCount DESC;
 
+
+
+-- STEP 3: Check if "Payment system issue" calls cluster by date (spike vs. steady)
+SELECT
+    CAST(CallDate AS DATE) AS CallDay,
+    COUNT(*) AS CallCount
+FROM Analytics_ConstellationWH.dbo.Care_CallAI
+WHERE [call.reasongranular] = 'Payment system issue'
+GROUP BY CAST(CallDate AS DATE)
+ORDER BY CallDay;
+
