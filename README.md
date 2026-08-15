@@ -609,3 +609,13 @@ SELECT TOP 20
 FROM dbo.IVR
 ORDER BY CallDate DESC;
 
+-- STEP 6: Pull every distinct Queue value that actually exists, plus how many calls each has
+SELECT 
+    Queue,
+    COUNT(*) AS CallCount,
+    MIN(CallDate) AS EarliestCall,
+    MAX(CallDate) AS LatestCall
+FROM dbo.IVR
+WHERE Queue IS NOT NULL
+GROUP BY Queue
+ORDER BY Queue;
