@@ -761,3 +761,37 @@ print(f"Saved to {output_path}")
 
 Test-NetConnection -ComputerName zfhqgwsera3vhwc4ohwq3y.datawarehouse.fabric.microsoft.com -Port 1433
 
+# load_interval_data.py
+# Loads the 15-minute interval call data exported from SSMS (no header row)
+# and runs a quick sanity check before we build the forecast.
+
+import pandas as pd
+
+# SSMS export has no header row, so we assign column names manually --
+# these match the SELECT order from the STEP 8 query:
+# Queue, CallDay, IntervalStart, CallVolume
+col_names = ["Queue", "CallDay", "IntervalStart", "CallVolume"]
+
+df = pd.read_csv("interval_call_data.csv", header=None, names=col_names)
+
+# Convert date columns to real datetime types
+df["CallDay"] = pd.to_datetime(df["CallDay"])
+df["IntervalStart"] = pd.to_datetime(df["IntervalStart"])
+
+print(f"Loaded {len(df):,} rows.")
+print()
+print("Queues found:")
+print(df["Queue"].value_counts())
+print()
+print("Date range:")
+print(f"  Earliest: {df['CallDay'].min()}")
+print(f"  Latest:   {df['CallDay'].max()}")
+print()
+print("First 5 rows:")
+print(df.head())
+
+# Save a cleaned version with proper headers for later steps
+df.to_csv("interval_call_data_clean.csv", index=False)
+print()
+print("Saved cleaned version to interval_call_data_clean.csv")
+
