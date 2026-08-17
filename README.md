@@ -94,4 +94,20 @@ FROM INFORMATION_SCHEMA.COLUMNS
 WHERE TABLE_NAME = 'iSigma_Bill_Master'
 ORDER BY ORDINAL_POSITION;
 
+-- STEP 6: Sample real bills to see what D10/D20/D30/D60 actually contain
+SELECT TOP 20
+    Bill_No,
+    cust_id,
+    service_start,
+    service_end,
+    ServicePeriod,
+    Usage,
+    PerDay,
+    D10,
+    D20,
+    D30,
+    D60
+FROM [Analytics_ConstellationWH].[dbo].[iSigma_Bill_Master]
+WHERE service_start IS NOT NULL
+ORDER BY service_start DESC;
 
