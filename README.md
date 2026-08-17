@@ -361,14 +361,27 @@ merged["ZScore"] = merged.apply(
 # ADJUSTABLE CUTOFF -- this is the single tunable knob for alert sensitivity
 Z_THRESHOLD = 2.5
 
-merged["Flagged"] = merged["ZScore"].abs() >= Z_THRESHOLD
+# MINIMUM VOLUME FLOOR -- queues too sparse to have a meaningful StdDev
+# produce false "anomalies" from a single call landing on a normally-silent
+# interval (StdDev near 0 makes any nonzero actual look extreme). Exclude
+# intervals where the forecast baseline itself is too small to trust.
+MIN_FORECAST_VOLUME = 3.0
+
+merged["Flagged"] = (merged["ZScore"].abs() >= Z_THRESHOLD) & (merged["ForecastVolume"] >= MIN_FORECAST_VOLUME)
+merged["ExcludedTooSparse"] = merged["ForecastVolume"] < MIN_FORECAST_VOLUME
 
 flagged = merged[merged["Flagged"]].copy()
 flagged = flagged.sort_values("ZScore", key=abs, ascending=False)
 
-print(f"Threshold: |z-score| >= {Z_THRESHOLD}")
+excluded_count = merged["ExcludedTooSparse"].sum()
+eligible = merged[~merged["ExcludedTooSparse"]]
+
+print(f"Threshold: |z-score| >= {Z_THRESHOLD}, minimum forecast volume >= {MIN_FORECAST_VOLUME}")
 print(f"Total intervals checked: {len(merged):,}")
-print(f"Flagged as anomalies: {len(flagged):,} ({100 * len(flagged) / len(merged):.2f}%)")
+print(f"Excluded as too sparse (forecast < {MIN_FORECAST_VOLUME}): {excluded_count:,} "
+      f"({100 * excluded_count / len(merged):.1f}%)")
+print(f"Eligible intervals: {len(eligible):,}")
+print(f"Flagged as anomalies: {len(flagged):,} ({100 * len(flagged) / len(eligible):.2f}% of eligible)")
 print()
 
 print("=== Top 15 most extreme deviations found in the historical data ===")
@@ -376,10 +389,18 @@ print(flagged[["Queue", "CallDay", "IntervalTime", "CallVolume", "ForecastVolume
       .head(15).to_string(index=False))
 print()
 
-print("=== Flag rate by queue (sanity check -- should be roughly similar across queues) ===")
-by_queue = merged.groupby("Queue")["Flagged"].agg(FlagRate=lambda x: 100 * x.mean(), Count="count")
+print("=== Flag rate by queue, eligible intervals only (sanity check) ===")
+by_queue = eligible.groupby("Queue")["Flagged"].agg(FlagRate=lambda x: 100 * x.mean(), Count="count")
 by_queue["FlagRate"] = by_queue["FlagRate"].round(2)
 print(by_queue.sort_values("FlagRate", ascending=False).to_string())
+print()
+
+sparse_queues = merged[merged["ExcludedTooSparse"]]["Queue"].unique()
+if len(sparse_queues) > 0:
+    print(f"NOTE: These queues had intervals excluded as too sparse for reliable alerting: "
+          f"{', '.join(sparse_queues)}")
+    print("These queues need a different monitoring approach (e.g., daily/weekly volume "
+          "checks rather than per-15-min alerting).")
 
 flagged.to_csv("deviation_alert_flagged_history.csv", index=False)
 print()
@@ -387,4 +408,3 @@ print("Saved flagged historical anomalies to deviation_alert_flagged_history.csv
 print()
 print("NOTE: Z_THRESHOLD = 2.5 is a starting point, not a fixed rule --")
 print("adjust up (fewer, more extreme alerts) or down (more sensitive) as needed.")
-
