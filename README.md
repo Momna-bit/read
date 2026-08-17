@@ -736,3 +736,55 @@ else:
     print(f"Fixed {fixed_count} line(s). The unauthorized_charges line now has guaranteed-correct indentation.")
 
 for rule in ["solar", "refer_a_friend", "power_to_choose", "critical_care", "things_you_should_know", "unauthorized_charges", "puct_complaint_info", "tdu_contact"]:
+
+
+# fix_pass_fail.py
+# The three new functions were returning True/False, but every other
+# function in this file returns "PASS"/"FAIL" strings. This rewrites
+# them to match. Run once: py fix_pass_fail.py
+
+SOURCE_FILE = "check_bill_rules.py"
+
+with open(SOURCE_FILE, "r", encoding="utf-8") as f:
+    content = f.read()
+
+old_block_marker_start = "def check_things_you_should_know(text):"
+old_block_marker_end = "def check_tdu_contact"
+
+start_idx = content.find(old_block_marker_start)
+end_idx = content.find(old_block_marker_end)
+
+if start_idx == -1 or end_idx == -1:
+    print("ERROR: could not find the expected functions in the file. Nothing changed.")
+else:
+    clean_block = '''def check_things_you_should_know(text):
+    if "THINGS YOU SHOULD KNOW ABOUT YOUR BILL" in text.upper():
+        return "PASS", "Required 'THINGS YOU SHOULD KNOW ABOUT YOUR BILL' notice present"
+    return "FAIL", "MISSING required 'THINGS YOU SHOULD KNOW ABOUT YOUR BILL' notice"
+
+
+def check_unauthorized_charges_notice(text, customer_care_phone):
+    text_lower = text.lower()
+    if "unauthorized charges" not in text_lower:
+        return "FAIL", "MISSING unauthorized charges notification"
+    if customer_care_phone and customer_care_phone in text:
+        return "PASS", f"Unauthorized charges notice present with correct phone number ({customer_care_phone})"
+    return "PASS", "Unauthorized charges notice present (phone number not cross-checked)"
+
+
+def check_puct_complaint_info(text):
+    required_fragments = ["P.O. Box 13326", "78711", "936-7120"]
+    missing = [f for f in required_fragments if f not in text]
+    if not missing:
+        return "PASS", "PUCT complaint-filing info present and complete"
+    return "FAIL", f"PUCT complaint info incomplete - missing: {', '.join(missing)}"
+
+
+'''
+    content = content[:start_idx] + clean_block + content[end_idx:]
+
+    with open(SOURCE_FILE, "w", encoding="utf-8") as f:
+        f.write(content)
+
+    print("Fixed! The three functions now return 'PASS'/'FAIL' strings, matching every other check in the file.")
+
