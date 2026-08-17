@@ -533,3 +533,24 @@ summary.to_csv("sparse_queue_summary.csv", index=False)
 dow_summary.to_csv("sparse_queue_dayofweek.csv", index=False)
 print()
 print("Saved sparse_queue_summary.csv and sparse_queue_dayofweek.csv")
+
+
+
+-- STEP 1: Export the full manifest (Bill_No, account_type, territory)
+-- for a recent window wide enough to cover all 33 real sample PDFs
+
+SELECT 
+    BM.Bill_No,
+    CM.CustomerType AS account_type,
+    CASE 
+        WHEN CM.Utility LIKE 'Centerpoint Energy%' THEN 'Centerpoint'
+        WHEN CM.Utility LIKE 'AEP Texas%' THEN 'AEP'
+        WHEN CM.Utility = 'Texas-New Mexico Power Co' THEN 'TNMP'
+        WHEN CM.Utility = 'Lubbock Power & Light' THEN 'Lubbock'
+        ELSE CM.Utility
+    END AS territory
+FROM [Analytics_ConstellationWH].[dbo].[iSigma_Bill_Master] BM
+LEFT JOIN [Analytics_ConstellationWH].[dbo].[iSigma_Customer_Master] CM
+    ON BM.cust_id = CM.cust_id
+WHERE BM.Bill_Date >= DATEADD(MONTH, -12, GETDATE())
+ORDER BY BM.Bill_No;
