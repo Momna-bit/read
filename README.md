@@ -734,3 +734,5 @@ else:
     with open(SOURCE_FILE, "w", encoding="utf-8") as f:
         f.writelines(lines)
     print(f"Fixed {fixed_count} line(s). The unauthorized_charges line now has guaranteed-correct indentation.")
+
+for rule in ["solar", "refer_a_friend", "power_to_choose", "critical_care", "things_you_should_know", "unauthorized_charges", "puct_complaint_info", "tdu_contact"]:
