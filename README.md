@@ -433,3 +433,103 @@ WHERE Queue IN (
 AND CallDate >= DATEADD(DAY, -90, CAST(GETDATE() AS DATE))
 GROUP BY Queue, CAST(CallDate AS DATE)
 ORDER BY Queue, CallDay;
+
+
+# build_sparse_queue_forecast.py
+# For the 6 sparse queues (plus HEB Hotline South-SPA, which had ZERO
+# calls in the 90-day window), 15-minute forecasting doesn't make sense --
+# there isn't enough volume to support it. Instead, this builds a much
+# simpler DAILY day-of-week average, the most granularity this data can
+# honestly support. Every queue here should be flagged to Jonathan as
+# low-confidence / directional-only, not something WFM should staff to
+# precisely.
+
+import pandas as pd
+
+col_names = ["Queue", "CallDay", "DailyCallCount"]
+df = pd.read_csv("sparse_queue_daily_data.csv", header=None, names=col_names)
+df["CallDay"] = pd.to_datetime(df["CallDay"])
+
+print(f"Loaded {len(df):,} rows across {df['Queue'].nunique()} queues.")
+print()
+
+# The 7 target queues from Bidya's original list (6 sparse + 1 zero-volume)
+target_queues = [
+    "Sams Club Hotline South-ENG",
+    "Sams Club Hotline South-SPA",
+    "Kroger Hotline South - ENG",
+    "Kroger Hotline South - SPA",
+    "OTC_Outbound_FCC_Consent_Yes_Active",
+    "HEB Hotline South - ENG",
+    "HEB Hotline South - SPA",
+]
+
+# Build a full date grid so days with ZERO calls are counted as zero,
+# not silently missing (same principle as the main forecast build)
+all_days = pd.date_range(df["CallDay"].min(), df["CallDay"].max(), freq="D")
+results = []
+
+for queue in target_queues:
+    q_data = df[df["Queue"] == queue]
+
+    if len(q_data) == 0:
+        # Queue had ZERO calls in the entire 90-day window
+        results.append({
+            "Queue": queue,
+            "TotalCalls90Days": 0,
+            "DaysWithAnyCalls": 0,
+            "AvgCallsPerDay": 0.0,
+            "Status": "ZERO VOLUME - no calls in 90 days, cannot forecast"
+        })
+        continue
+
+    grid = pd.DataFrame({"CallDay": all_days})
+    merged = grid.merge(q_data[["CallDay", "DailyCallCount"]], on="CallDay", how="left")
+    merged["DailyCallCount"] = merged["DailyCallCount"].fillna(0)
+
+    total_calls = merged["DailyCallCount"].sum()
+    days_with_calls = (merged["DailyCallCount"] > 0).sum()
+    avg_per_day = merged["DailyCallCount"].mean()
+
+    status = "Low volume - directional only" if avg_per_day < 5 else "Sparse but usable"
+
+    results.append({
+        "Queue": queue,
+        "TotalCalls90Days": int(total_calls),
+        "DaysWithAnyCalls": int(days_with_calls),
+        "AvgCallsPerDay": round(avg_per_day, 2),
+        "Status": status
+    })
+
+summary = pd.DataFrame(results)
+print("=== Sparse queue summary (90-day window) ===")
+print(summary.to_string(index=False))
+print()
+
+# Day-of-week breakdown for queues that have SOME usable volume
+print("=== Day-of-week averages (for queues with any real volume) ===")
+dow_order = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+dow_results = []
+
+for queue in target_queues:
+    q_data = df[df["Queue"] == queue]
+    if len(q_data) == 0:
+        continue
+
+    grid = pd.DataFrame({"CallDay": all_days})
+    merged = grid.merge(q_data[["CallDay", "DailyCallCount"]], on="CallDay", how="left")
+    merged["DailyCallCount"] = merged["DailyCallCount"].fillna(0)
+    merged["DayOfWeek"] = merged["CallDay"].dt.day_name()
+
+    dow_avg = merged.groupby("DayOfWeek")["DailyCallCount"].mean().reindex(dow_order)
+    for dow, avg in dow_avg.items():
+        dow_results.append({"Queue": queue, "DayOfWeek": dow, "AvgCalls": round(avg, 2)})
+
+dow_summary = pd.DataFrame(dow_results)
+pivot = dow_summary.pivot(index="Queue", columns="DayOfWeek", values="AvgCalls")[dow_order]
+print(pivot.to_string())
+
+summary.to_csv("sparse_queue_summary.csv", index=False)
+dow_summary.to_csv("sparse_queue_dayofweek.csv", index=False)
+print()
+print("Saved sparse_queue_summary.csv and sparse_queue_dayofweek.csv")
