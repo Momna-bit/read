@@ -586,3 +586,6 @@ AND CM.Utility IN (
     'Texas-New Mexico Power Co', 'Lubbock Power & Light', 'Oncor'
 )
 ORDER BY BM.Bill_No;
+
+
+py check_bill_rules.py "Amigo_Energy_Sample.pdf" --account-type residential --territory Oncor
