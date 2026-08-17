@@ -408,3 +408,28 @@ print("Saved flagged historical anomalies to deviation_alert_flagged_history.csv
 print()
 print("NOTE: Z_THRESHOLD = 2.5 is a starting point, not a fixed rule --")
 print("adjust up (fewer, more extreme alerts) or down (more sensitive) as needed.")
+
+
+
+-- STEP 9: Pull daily-level (not 15-min) volume for the 6 sparse queues
+-- plus the 1 zero-recent-calls queue, over the last 90 days.
+-- These don't have enough volume for 15-min forecasting, so we're
+-- building a simpler daily view instead -- day-of-week averages only.
+
+SELECT 
+    Queue,
+    CAST(CallDate AS DATE) AS CallDay,
+    COUNT(*) AS DailyCallCount
+FROM dbo.IVR
+WHERE Queue IN (
+    'Sams Club Hotline South-ENG',
+    'Sams Club Hotline South-SPA',
+    'Kroger Hotline South - ENG',
+    'Kroger Hotline South - SPA',
+    'OTC_Outbound_FCC_Consent_Yes_Active',
+    'HEB Hotline South - ENG',
+    'HEB Hotline South - SPA'
+)
+AND CallDate >= DATEADD(DAY, -90, CAST(GETDATE() AS DATE))
+GROUP BY Queue, CAST(CallDate AS DATE)
+ORDER BY Queue, CallDay;
