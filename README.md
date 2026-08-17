@@ -183,3 +183,84 @@ FROM SegmentByUtility S
 JOIN OverallByUtility O ON S.Utility = O.Utility
 ORDER BY PctPointDifference DESC;
 
+
+
+# backtest_granularity_comparison.py
+# Tests whether coarser time buckets (30-min, hourly) improve forecast
+# accuracy compared to the 15-minute baseline (~48% MAPE). Builds the
+# coarser buckets directly from the existing 15-min data (no new SQL
+# needed), then runs the same leave-one-out backtest method used before
+# so all three granularities are directly comparable.
+
+import pandas as pd
+import numpy as np
+
+df = pd.read_csv("interval_call_data_clean.csv", parse_dates=["CallDay", "IntervalStart"])
+
+
+def build_bucket_time(interval_start, minutes):
+    """Round IntervalStart down to the nearest `minutes`-sized bucket."""
+    total_minutes = interval_start.hour * 60 + interval_start.minute
+    bucket_minutes = (total_minutes // minutes) * minutes
+    return f"{bucket_minutes // 60:02d}:{bucket_minutes % 60:02d}:00"
+
+
+def run_backtest(data, granularity_minutes, label):
+    data = data.copy()
+    data["BucketTime"] = data["IntervalStart"].apply(lambda x: build_bucket_time(x, granularity_minutes))
+
+    # Re-aggregate call volume into the coarser buckets
+    bucketed = data.groupby(["Queue", "CallDay", "BucketTime"], as_index=False)["CallVolume"].sum()
+    bucketed["DayOfWeek"] = pd.to_datetime(bucketed["CallDay"]).dt.day_name()
+
+    backtest_rows = []
+    for queue in bucketed["Queue"].unique():
+        q_data = bucketed[bucketed["Queue"] == queue]
+        real_buckets = sorted(q_data["BucketTime"].unique())
+        all_days = pd.date_range(q_data["CallDay"].min(), q_data["CallDay"].max(), freq="D")
+
+        grid = pd.MultiIndex.from_product([all_days, real_buckets], names=["CallDay", "BucketTime"]).to_frame(index=False)
+        grid["CallDay"] = grid["CallDay"].astype(str)
+        merged = grid.merge(q_data[["CallDay", "BucketTime", "CallVolume"]].astype({"CallDay": str}),
+                             on=["CallDay", "BucketTime"], how="left")
+        merged["CallVolume"] = merged["CallVolume"].fillna(0)
+        merged["DayOfWeek"] = pd.to_datetime(merged["CallDay"]).dt.day_name()
+
+        for (dow, btime), group in merged.groupby(["DayOfWeek", "BucketTime"]):
+            vols = group["CallVolume"].values
+            n = len(vols)
+            if n < 2:
+                continue
+            total = vols.sum()
+            for idx, actual in zip(group.index, vols):
+                loo_forecast = (total - actual) / (n - 1)
+                backtest_rows.append({"Queue": queue, "Actual": actual, "Forecast": round(loo_forecast, 2)})
+
+    bt = pd.DataFrame(backtest_rows)
+    bt["AbsError"] = (bt["Actual"] - bt["Forecast"]).abs()
+    nonzero = bt[bt["Actual"] > 0].copy()
+    nonzero["APE"] = nonzero["AbsError"] / nonzero["Actual"] * 100
+    nonzero["Within15pct"] = nonzero["APE"] <= 15
+
+    mape = nonzero["APE"].mean()
+    within15 = 100 * nonzero["Within15pct"].mean()
+    print(f"=== {label} ===")
+    print(f"Bucket-days tested: {len(bt):,} | Non-zero: {len(nonzero):,}")
+    print(f"MAPE: {mape:.1f}%")
+    print(f"% within 15% of actual: {within15:.1f}%")
+    print()
+    return {"Granularity": label, "MAPE": round(mape, 1), "Within15pct": round(within15, 1)}
+
+
+results = []
+results.append(run_backtest(df, 15, "15-minute (baseline)"))
+results.append(run_backtest(df, 30, "30-minute"))
+results.append(run_backtest(df, 60, "Hourly"))
+
+summary = pd.DataFrame(results)
+print("=== SUMMARY: accuracy by granularity ===")
+print(summary.to_string(index=False))
+
+summary.to_csv("granularity_comparison_results.csv", index=False)
+print()
+print("Saved to granularity_comparison_results.csv")
