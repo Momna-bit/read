@@ -58,3 +58,18 @@ SELECT
 FROM CustomerAttrition
 GROUP BY Outcome
 ORDER BY TotalDebt DESC;
+
+
+SELECT CONCAT('Tenure bucket: ', TenureBucket),
+    COUNT(*), AVG(Tenure), AVG(CAST(CreditScore AS FLOAT)), AVG(Debt), SUM(Debt)
+FROM (
+    SELECT *,
+        CASE WHEN Tenure < 3 THEN '0-2 months'
+             WHEN Tenure < 6 THEN '3-5 months'
+             WHEN Tenure < 12 THEN '6-11 months'
+             WHEN Tenure < 24 THEN '1-2 years'
+             ELSE '2+ years' END AS TenureBucket
+    FROM SwitchBeforeBillDue
+) WithBucket
+GROUP BY TenureBucket
+
