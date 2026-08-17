@@ -73,3 +73,25 @@ FROM (
 ) WithBucket
 GROUP BY TenureBucket
 
+
+-- STEP 4: Search for any usage/meter-related tables in the warehouse,
+-- in case daily usage data already exists somewhere we haven't found yet
+
+SELECT TABLE_SCHEMA, TABLE_NAME
+FROM INFORMATION_SCHEMA.TABLES
+WHERE TABLE_NAME LIKE '%usage%'
+   OR TABLE_NAME LIKE '%meter%'
+   OR TABLE_NAME LIKE '%kwh%'
+   OR TABLE_NAME LIKE '%consumption%'
+   OR TABLE_NAME LIKE '%read%'
+ORDER BY TABLE_NAME;
+
+
+-- STEP 5: Check what columns iSigma_Bill_Master actually has,
+-- in case usage-at-billing-time is already sitting there
+SELECT COLUMN_NAME, DATA_TYPE
+FROM INFORMATION_SCHEMA.COLUMNS
+WHERE TABLE_NAME = 'iSigma_Bill_Master'
+ORDER BY ORDINAL_POSITION;
+
+
