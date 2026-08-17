@@ -559,3 +559,7 @@ AND CM.Utility IN (
     'Texas-New Mexico Power Co', 'Lubbock Power & Light', 'Oncor'
 )
 ORDER BY BM.Bill_No;
+
+
+py check_bill_rules.py --batch "." --manifest bill_manifest_full.csv
+
