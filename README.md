@@ -146,3 +146,40 @@ FROM SwitchBeforeBillDue
 GROUP BY ProductName
 
 ORDER BY Segment;
+
+
+
+-- STEP 8: Compare each utility's share of SwitchBeforeBillDue against
+-- its share of the OVERALL residential Texas customer base
+
+WITH CustomerAttrition AS (
+    -- (same full query as before)
+),
+SwitchBeforeBillDue AS (
+    SELECT * FROM CustomerAttrition WHERE Outcome = 'SwitchBeforeBillDue'
+),
+SegmentByUtility AS (
+    SELECT Utility, 
+        COUNT(*) AS SegmentCount,
+        CAST(100.0 * COUNT(*) / SUM(COUNT(*)) OVER () AS DECIMAL(5,2)) AS PctOfSegment
+    FROM SwitchBeforeBillDue
+    GROUP BY Utility
+),
+OverallByUtility AS (
+    SELECT Utility, 
+        COUNT(*) AS OverallCount,
+        CAST(100.0 * COUNT(*) / SUM(COUNT(*)) OVER () AS DECIMAL(5,2)) AS PctOfOverall
+    FROM CustomerAttrition
+    GROUP BY Utility
+)
+SELECT 
+    S.Utility,
+    S.SegmentCount,
+    S.PctOfSegment,
+    O.OverallCount,
+    O.PctOfOverall,
+    CAST(S.PctOfSegment - O.PctOfOverall AS DECIMAL(5,2)) AS PctPointDifference
+FROM SegmentByUtility S
+JOIN OverallByUtility O ON S.Utility = O.Utility
+ORDER BY PctPointDifference DESC;
+
