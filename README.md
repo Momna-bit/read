@@ -320,3 +320,71 @@ print(sample[["IntervalTime", "ForecastVolume", "StdDev"]].head(15).to_string(in
 forward_forecast.to_csv("interval_forecast_forward_90day.csv", index=False)
 print()
 print("Saved to interval_forecast_forward_90day.csv")
+
+
+# build_deviation_alert.py
+# Deviation/anomaly alert: flags a 15-min interval as unusual when the
+# actual call volume strays too far from the forecast for THAT SPECIFIC
+# interval, measured in standard deviations rather than a flat percentage.
+# This matters because some intervals are naturally stable (low std) and
+# others are naturally volatile (high std) -- a flat % threshold would
+# false-alarm constantly on volatile intervals and miss real problems on
+# stable ones. The z-score threshold is a single adjustable cutoff, same
+# idea as the tunable cutoff used for the Task 7 targeting model.
+
+import pandas as pd
+
+df = pd.read_csv("interval_call_data_clean.csv", parse_dates=["CallDay", "IntervalStart"])
+baseline = pd.read_csv("interval_forecast_baseline.csv")
+
+df["IntervalTime"] = df["IntervalStart"].dt.time
+df["DayOfWeek"] = df["CallDay"].dt.day_name()
+
+# Match baseline's IntervalTime format (string) to df's (time object)
+baseline["IntervalTime"] = pd.to_datetime(baseline["IntervalTime"], format="%H:%M:%S").dt.time
+
+# Join actuals to their forecast + std dev for that exact Queue/DayOfWeek/Interval
+merged = df.merge(
+    baseline[["Queue", "DayOfWeek", "IntervalTime", "ForecastVolume", "StdDev"]],
+    on=["Queue", "DayOfWeek", "IntervalTime"],
+    how="left"
+)
+
+# Avoid divide-by-zero: where StdDev is 0 (perfectly stable interval), any
+# deviation at all is flagged rather than computing an undefined z-score
+merged["Deviation"] = merged["CallVolume"] - merged["ForecastVolume"]
+merged["ZScore"] = merged.apply(
+    lambda r: (r["Deviation"] / r["StdDev"]) if r["StdDev"] > 0 else (999 if r["Deviation"] != 0 else 0),
+    axis=1
+)
+
+# ADJUSTABLE CUTOFF -- this is the single tunable knob for alert sensitivity
+Z_THRESHOLD = 2.5
+
+merged["Flagged"] = merged["ZScore"].abs() >= Z_THRESHOLD
+
+flagged = merged[merged["Flagged"]].copy()
+flagged = flagged.sort_values("ZScore", key=abs, ascending=False)
+
+print(f"Threshold: |z-score| >= {Z_THRESHOLD}")
+print(f"Total intervals checked: {len(merged):,}")
+print(f"Flagged as anomalies: {len(flagged):,} ({100 * len(flagged) / len(merged):.2f}%)")
+print()
+
+print("=== Top 15 most extreme deviations found in the historical data ===")
+print(flagged[["Queue", "CallDay", "IntervalTime", "CallVolume", "ForecastVolume", "ZScore"]]
+      .head(15).to_string(index=False))
+print()
+
+print("=== Flag rate by queue (sanity check -- should be roughly similar across queues) ===")
+by_queue = merged.groupby("Queue")["Flagged"].agg(FlagRate=lambda x: 100 * x.mean(), Count="count")
+by_queue["FlagRate"] = by_queue["FlagRate"].round(2)
+print(by_queue.sort_values("FlagRate", ascending=False).to_string())
+
+flagged.to_csv("deviation_alert_flagged_history.csv", index=False)
+print()
+print("Saved flagged historical anomalies to deviation_alert_flagged_history.csv")
+print()
+print("NOTE: Z_THRESHOLD = 2.5 is a starting point, not a fixed rule --")
+print("adjust up (fewer, more extreme alerts) or down (more sensitive) as needed.")
+
