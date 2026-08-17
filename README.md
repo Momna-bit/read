@@ -536,8 +536,8 @@ print("Saved sparse_queue_summary.csv and sparse_queue_dayofweek.csv")
 
 
 
--- STEP 1: Export the full manifest (Bill_No, account_type, territory)
--- for a recent window wide enough to cover all 33 real sample PDFs
+-- STEP 1 (corrected): Export the manifest, scoped to the actual
+-- Texas TDU territories this tool covers
 
 SELECT 
     BM.Bill_No,
@@ -547,10 +547,15 @@ SELECT
         WHEN CM.Utility LIKE 'AEP Texas%' THEN 'AEP'
         WHEN CM.Utility = 'Texas-New Mexico Power Co' THEN 'TNMP'
         WHEN CM.Utility = 'Lubbock Power & Light' THEN 'Lubbock'
+        WHEN CM.Utility = 'Oncor' THEN 'Oncor'
         ELSE CM.Utility
     END AS territory
 FROM [Analytics_ConstellationWH].[dbo].[iSigma_Bill_Master] BM
 LEFT JOIN [Analytics_ConstellationWH].[dbo].[iSigma_Customer_Master] CM
     ON BM.cust_id = CM.cust_id
 WHERE BM.Bill_Date >= DATEADD(MONTH, -12, GETDATE())
+AND CM.Utility IN (
+    'Centerpoint Energy', 'AEP Texas Central', 'AEP Texas North',
+    'Texas-New Mexico Power Co', 'Lubbock Power & Light', 'Oncor'
+)
 ORDER BY BM.Bill_No;
