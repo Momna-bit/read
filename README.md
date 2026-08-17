@@ -618,3 +618,84 @@ def check_puct_complaint_info(text):
 results["things_you_should_know"] = check_things_you_should_know(text)
 results["unauthorized_charges"] = check_unauthorized_charges_notice(text, customer_care_phone)
 results["puct_complaint_info"] = check_puct_complaint_info(text)
+
+
+
+# fix_functions.py
+# One-time repair script. Run this once from your Bill pdf folder:
+#     py fix_functions.py
+#
+# It finds the three new check functions (however broken their current
+# indentation is), removes them completely, and reinserts clean, correctly
+# formatted versions right before check_tdu_contact. This avoids all manual
+# editing in VS Code, which is where the indentation kept breaking.
+
+import re
+
+SOURCE_FILE = "check_bill_rules.py"
+
+with open(SOURCE_FILE, "r", encoding="utf-8") as f:
+    content = f.read()
+
+# The three functions we're fixing, exactly as they should be -- clean,
+# consistent 4-space indentation, guaranteed correct.
+clean_block = '''def check_things_you_should_know(text):
+    if "THINGS YOU SHOULD KNOW ABOUT YOUR BILL" in text.upper():
+        return True, "Required 'THINGS YOU SHOULD KNOW ABOUT YOUR BILL' notice present"
+    return False, "MISSING required 'THINGS YOU SHOULD KNOW ABOUT YOUR BILL' notice"
+
+
+def check_unauthorized_charges_notice(text, customer_care_phone):
+    text_lower = text.lower()
+    if "unauthorized charges" not in text_lower:
+        return False, "MISSING unauthorized charges notification"
+    if customer_care_phone and customer_care_phone in text:
+        return True, f"Unauthorized charges notice present with correct phone number ({customer_care_phone})"
+    return True, "Unauthorized charges notice present (phone number not cross-checked)"
+
+
+def check_puct_complaint_info(text):
+    required_fragments = ["P.O. Box 13326", "78711", "936-7120"]
+    missing = [f for f in required_fragments if f not in text]
+    if not missing:
+        return True, "PUCT complaint-filing info present and complete"
+    return False, f"PUCT complaint info incomplete - missing: {', '.join(missing)}"
+
+
+'''
+
+# Step 1: remove any existing (possibly broken) versions of these three
+# functions -- match from "def check_things_you_should_know" up to (but
+# not including) the next "def " that follows, no matter how mangled the
+# indentation in between is.
+pattern = re.compile(
+    r"def check_things_you_should_know\(.*?(?=\ndef )",
+    re.DOTALL
+)
+
+if pattern.search(content):
+    content = pattern.sub("", content)
+    print("Found and removed the existing (broken) function block.")
+else:
+    print("No existing broken block found -- will insert fresh.")
+
+# Step 2: insert the clean block right before "def check_tdu_contact"
+insertion_marker = "def check_tdu_contact"
+
+if insertion_marker not in content:
+    print(f"ERROR: could not find '{insertion_marker}' in the file.")
+    print("Nothing was changed. Please double check the file structure.")
+else:
+    content = content.replace(insertion_marker, clean_block + insertion_marker, 1)
+
+    with open(SOURCE_FILE, "w", encoding="utf-8") as f:
+        f.write(content)
+
+    print("Success! The three functions have been cleanly inserted.")
+    print("Now search for where results['critical_care'] is set, and add")
+    print("these three lines right after it (this part still needs a quick")
+    print("manual check, but the function definitions themselves are fixed):")
+    print()
+    print('    results["things_you_should_know"] = check_things_you_should_know(text)')
+    print('    results["unauthorized_charges"] = check_unauthorized_charges_notice(text, customer_care_phone)')
+    print('    results["puct_complaint_info"] = check_puct_complaint_info(text)')
