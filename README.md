@@ -708,3 +708,29 @@ else:
 
 
     results["unauthorized_charges"] = check_unauthorized_charges_notice(text, None)
+
+
+# fix_line226.py
+# One-time repair for the single persistent indentation problem.
+# Run once: py fix_line226.py
+
+import re
+
+SOURCE_FILE = "check_bill_rules.py"
+
+with open(SOURCE_FILE, "r", encoding="utf-8") as f:
+    lines = f.readlines()
+
+fixed_count = 0
+for i, line in enumerate(lines):
+    if "results[\"unauthorized_charges\"]" in line and "check_unauthorized_charges_notice" in line:
+        # Rebuild this line from scratch with guaranteed-correct 4-space indent
+        lines[i] = '    results["unauthorized_charges"] = check_unauthorized_charges_notice(text, None)\n'
+        fixed_count += 1
+
+if fixed_count == 0:
+    print("Could not find the unauthorized_charges line -- nothing changed.")
+else:
+    with open(SOURCE_FILE, "w", encoding="utf-8") as f:
+        f.writelines(lines)
+    print(f"Fixed {fixed_count} line(s). The unauthorized_charges line now has guaranteed-correct indentation.")
