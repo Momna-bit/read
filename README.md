@@ -111,3 +111,38 @@ FROM [Analytics_ConstellationWH].[dbo].[iSigma_Bill_Master]
 WHERE service_start IS NOT NULL
 ORDER BY service_start DESC;
 
+
+-- STEP 7: Profile SwitchBeforeBillDue by utility, brand, and product
+
+WITH CustomerAttrition AS (
+    -- (same full query as before)
+),
+SwitchBeforeBillDue AS (
+    SELECT * FROM CustomerAttrition WHERE Outcome = 'SwitchBeforeBillDue'
+)
+SELECT 'Overall' AS Segment, 
+    COUNT(*) AS CustomerCount, AVG(Debt) AS AvgDebt, SUM(Debt) AS TotalDebt
+FROM SwitchBeforeBillDue
+
+UNION ALL
+
+SELECT CONCAT('Utility: ', Utility), 
+    COUNT(*), AVG(Debt), SUM(Debt)
+FROM SwitchBeforeBillDue
+GROUP BY Utility
+
+UNION ALL
+
+SELECT CONCAT('Brand: ', Brand), 
+    COUNT(*), AVG(Debt), SUM(Debt)
+FROM SwitchBeforeBillDue
+GROUP BY Brand
+
+UNION ALL
+
+SELECT CONCAT('Product: ', ProductName), 
+    COUNT(*), AVG(Debt), SUM(Debt)
+FROM SwitchBeforeBillDue
+GROUP BY ProductName
+
+ORDER BY Segment;
