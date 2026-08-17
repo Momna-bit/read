@@ -705,3 +705,6 @@ else:
     results["things_you_should_know"] = check_things_you_should_know(text)
     results["unauthorized_charges"] = check_unauthorized_charges_notice(text, customer_care_phone)
     results["puct_complaint_info"] = check_puct_complaint_info(text)
+
+
+    results["unauthorized_charges"] = check_unauthorized_charges_notice(text, None)
