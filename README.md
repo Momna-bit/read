@@ -618,3 +618,8 @@ def check_puct_complaint_info(text):
     if not missing:
         return True, "PUCT complaint-filing info present and complete"
     return False, f"PUCT complaint info incomplete - missing: {', '.join(missing)}"
+
+
+results["things_you_should_know"] = check_things_you_should_know(text)
+results["unauthorized_charges"] = check_unauthorized_charges_notice(text, customer_care_phone)
+results["puct_complaint_info"] = check_puct_complaint_info(text)
