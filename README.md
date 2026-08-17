@@ -589,3 +589,32 @@ ORDER BY BM.Bill_No;
 
 
 py check_bill_rules.py "Amigo_Energy_Sample.pdf" --account-type residential --territory Oncor
+
+
+
+def check_things_you_should_know(text):
+    """Verifies the required 'THINGS YOU SHOULD KNOW ABOUT YOUR BILL' heading is present."""
+    if "THINGS YOU SHOULD KNOW ABOUT YOUR BILL" in text.upper():
+        return True, "Required 'THINGS YOU SHOULD KNOW ABOUT YOUR BILL' notice present"
+    return False, "MISSING required 'THINGS YOU SHOULD KNOW ABOUT YOUR BILL' notice"
+
+
+def check_unauthorized_charges_notice(text, customer_care_phone):
+    """Verifies the unauthorized-charges language is present AND references
+    the same customer care phone number shown elsewhere on the bill."""
+    text_lower = text.lower()
+    if "unauthorized charges" not in text_lower:
+        return False, "MISSING unauthorized charges notification"
+    if customer_care_phone and customer_care_phone in text:
+        return True, f"Unauthorized charges notice present with correct phone number ({customer_care_phone})"
+    return True, "Unauthorized charges notice present (phone number not cross-checked)"
+
+
+def check_puct_complaint_info(text):
+    """Verifies the required PUCT complaint-filing info is present:
+    P.O. Box 13326, Austin, Texas 78711, and the PUCT phone number."""
+    required_fragments = ["P.O. Box 13326", "78711", "936-7120"]
+    missing = [f for f in required_fragments if f not in text]
+    if not missing:
+        return True, "PUCT complaint-filing info present and complete"
+    return False, f"PUCT complaint info incomplete - missing: {', '.join(missing)}"
