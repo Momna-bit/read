@@ -563,3 +563,26 @@ ORDER BY BM.Bill_No;
 
 py check_bill_rules.py --batch "." --manifest bill_manifest_full.csv
 
+-- STEP 1 (re-scoped): Same TDU filter, but narrowed to a recent window
+-- since our 33 sample PDFs are recent test exports, not a full year's worth
+
+SELECT 
+    BM.Bill_No,
+    CM.CustomerType AS account_type,
+    CASE 
+        WHEN CM.Utility LIKE 'Centerpoint Energy%' THEN 'Centerpoint'
+        WHEN CM.Utility LIKE 'AEP Texas%' THEN 'AEP'
+        WHEN CM.Utility = 'Texas-New Mexico Power Co' THEN 'TNMP'
+        WHEN CM.Utility = 'Lubbock Power & Light' THEN 'Lubbock'
+        WHEN CM.Utility = 'Oncor' THEN 'Oncor'
+        ELSE CM.Utility
+    END AS territory
+FROM [Analytics_ConstellationWH].[dbo].[iSigma_Bill_Master] BM
+LEFT JOIN [Analytics_ConstellationWH].[dbo].[iSigma_Customer_Master] CM
+    ON BM.cust_id = CM.cust_id
+WHERE BM.Bill_Date >= DATEADD(DAY, -30, GETDATE())
+AND CM.Utility IN (
+    'Centerpoint Energy', 'AEP Texas Central', 'AEP Texas North',
+    'Texas-New Mexico Power Co', 'Lubbock Power & Light', 'Oncor'
+)
+ORDER BY BM.Bill_No;
