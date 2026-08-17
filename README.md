@@ -41,3 +41,20 @@ npm run dev
 
 
 
+-- STEP 1: Validate Jonathan's numbers — wrap the existing query and check
+-- the Outcome breakdown by customer count and total debt
+
+WITH CustomerAttrition AS (
+    -- PASTE your entire existing query here, exactly as it is now
+    -- (everything from "SELECT CM.[cust_id] AS 'CustID'" down through
+    -- the final "GROUP BY ... ,P.PreviousCustID")
+)
+SELECT 
+    Outcome,
+    COUNT(*) AS CustomerCount,
+    SUM(Debt) AS TotalDebt,
+    CAST(100.0 * COUNT(*) / SUM(COUNT(*)) OVER () AS DECIMAL(5,2)) AS PctOfCustomers,
+    CAST(100.0 * SUM(Debt) / SUM(SUM(Debt)) OVER () AS DECIMAL(5,2)) AS PctOfTotalDebt
+FROM CustomerAttrition
+GROUP BY Outcome
+ORDER BY TotalDebt DESC;
