@@ -264,3 +264,59 @@ print(summary.to_string(index=False))
 summary.to_csv("granularity_comparison_results.csv", index=False)
 print()
 print("Saved to granularity_comparison_results.csv")
+
+
+
+# generate_forward_forecast.py
+# Builds the real forward-looking 15-minute interval forecast for the next
+# 3 months, using the day-of-week + time-of-day baseline already validated
+# via backtesting (~48% MAPE, honestly disclosed). This is the actual
+# forecast table -- not a backtest -- meant for WFM/Lou to use.
+
+import pandas as pd
+from datetime import timedelta
+
+# Load the validated baseline (built in build_interval_forecast.py)
+baseline = pd.read_csv("interval_forecast_baseline.csv")
+
+# Forecast horizon: next 3 months from today
+today = pd.Timestamp.now().normalize()
+horizon_days = 90
+future_dates = pd.date_range(today, today + timedelta(days=horizon_days - 1), freq="D")
+
+forecast_rows = []
+for date in future_dates:
+    dow = date.day_name()
+    day_forecast = baseline[baseline["DayOfWeek"] == dow].copy()
+    day_forecast["ForecastDate"] = date
+    forecast_rows.append(day_forecast)
+
+forward_forecast = pd.concat(forecast_rows, ignore_index=True)
+forward_forecast = forward_forecast[["Queue", "ForecastDate", "DayOfWeek", "IntervalTime",
+                                       "ForecastVolume", "StdDev", "SampleSize"]]
+forward_forecast = forward_forecast.sort_values(["Queue", "ForecastDate", "IntervalTime"])
+
+print(f"Generated forward forecast: {len(forward_forecast):,} rows")
+print(f"Covering {forward_forecast['Queue'].nunique()} queues over {horizon_days} days "
+      f"({future_dates.min().date()} to {future_dates.max().date()})")
+print()
+
+# Quick sanity check: total forecasted calls per queue over the full 90 days
+totals = forward_forecast.groupby("Queue")["ForecastVolume"].sum().round(0).sort_values(ascending=False)
+print("=== Total forecasted calls per queue, next 90 days ===")
+print(totals.to_string())
+print()
+
+# Sample: tomorrow's forecast for the highest-volume queue
+top_queue = totals.index[0]
+tomorrow = future_dates[1]
+sample = forward_forecast[
+    (forward_forecast["Queue"] == top_queue) &
+    (forward_forecast["ForecastDate"] == tomorrow)
+]
+print(f"=== Sample: {top_queue}, forecast for {tomorrow.date()} ({tomorrow.day_name()}) ===")
+print(sample[["IntervalTime", "ForecastVolume", "StdDev"]].head(15).to_string(index=False))
+
+forward_forecast.to_csv("interval_forecast_forward_90day.csv", index=False)
+print()
+print("Saved to interval_forecast_forward_90day.csv")
