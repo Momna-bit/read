@@ -1474,3 +1474,7 @@ def check_customer_name_and_billing_address(text):
     if re.search(address_block_pattern, top_section):
         return ("REVIEW", "Address-shaped text found near the top of the bill (likely the customer name/address block) — no label exists to confirm automatically. Manual check needed.")
     return ("FAIL", "No name or address block detected near the top of the bill — worth a manual look, this may be a real gap or a layout this check doesn't cover yet.")
+
+
+
+marker = {"PASS": "[PASS]", "FAIL": "[FAIL]", "SKIP": "[SKIP]", "REVIEW": "[REVIEW]"}[status]
