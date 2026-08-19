@@ -1445,3 +1445,32 @@ def check_customer_name_and_billing_address(text):
     if re.search(address_block_pattern, top_section):
         return ("REVIEW", "Address-shaped text found near the top of the bill (likely the customer name/address block) — no label exists to confirm automatically. Manual check needed.")
     return ("FAIL", "No name or address block detected near the top of the bill — worth a manual look, this may be a real gap or a layout this check doesn't cover yet.")
+
+
+def check_account_number(text):
+    pattern = r"(?i)(account|acct)\.?\s*(number|no\.?|#)\s*[:\-]?\s*\d+"
+    if re.search(pattern, text):
+        return ("PASS", "Account number field found on bill.")
+    return ("FAIL", "No labeled account number found (checked 'Account Number', 'Acct #', 'Acct No.').")
+
+
+def check_service_address_and_esi_id(text):
+    esiid_format = r"\b10\d{15}\b"
+    label_pattern = r"(?i)service\s*(address|at\s*premise)\s*#?\s*[:\-]?"
+    has_label = re.search(label_pattern, text)
+    has_esiid = re.search(esiid_format, text)
+    if has_label and has_esiid:
+        return ("PASS", "Service premise field found, with a value matching the expected 17-digit ESI ID format.")
+    if has_esiid and not has_label:
+        return ("PASS", "A 17-digit ESI-ID-format number was found, though not under a recognized label — verify manually.")
+    if has_label and not has_esiid:
+        return ("FAIL", "Service address/premise label found, but no ESI-ID-format value nearby — verify manually.")
+    return ("FAIL", "No service address, premise number, or ESI ID found.")
+
+
+def check_customer_name_and_billing_address(text):
+    top_section = text[:600]
+    address_block_pattern = r"[A-Z][a-zA-Z\s]+,\s*TX\s*\d{5}(-\d{4})?"
+    if re.search(address_block_pattern, top_section):
+        return ("REVIEW", "Address-shaped text found near the top of the bill (likely the customer name/address block) — no label exists to confirm automatically. Manual check needed.")
+    return ("FAIL", "No name or address block detected near the top of the bill — worth a manual look, this may be a real gap or a layout this check doesn't cover yet.")
