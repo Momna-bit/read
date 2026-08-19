@@ -1594,3 +1594,14 @@ def check_due_date(text):
     if _label_then_nearby_value(text, r"(?i)due\s*(date|by)", r"\d{1,2}/\d{1,2}/\d{2,4}"):
         return ("PASS", "Due date field found, with a nearby value.")
     return ("FAIL", "No labeled due date found (or no date value nearby).")
+
+
+
+results["bill_number"] = check_bill_number(text)
+results["bill_date_field"] = check_bill_date(text)
+results["bill_period"] = check_bill_period(text)
+results["previous_balance"] = check_previous_balance(text)
+results["current_charges"] = check_current_charges(text)
+results["payments_adjustments"] = check_payments_adjustments(text)
+results["amount_due"] = check_amount_due(text)
+results["due_date_field"] = check_due_date(text)
