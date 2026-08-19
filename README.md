@@ -1311,3 +1311,53 @@ results["esi_id"] = check_esi_id(text)
 
 
 for rule in ["solar", "refer_a_friend", "power_to_choose", "critical_care", "things_you_should_know", "unauthorized_charges", "puct_complaint_info", "tdu_contact", "customer_name", "account_number", "service_address", "billing_address", "esi_id"]:
+
+
+
+import re
+
+def check_customer_name(text, account_type=None, territory=None):
+    patterns = [
+        r"(?i)customer\s*name\s*[:\-]",
+        r"(?i)\bname\s*[:\-]",
+        r"(?i)bill\s*to\s*[:\-]",
+    ]
+    for pat in patterns:
+        if re.search(pat, text):
+            return ("PASS", "Customer name field found on bill.")
+    return ("FAIL", "No customer name field found (checked 'Customer Name:', 'Name:', 'Bill To:').")
+
+
+def check_account_number(text):
+    pattern = r"(?i)account\s*(number|no\.?|#)\s*[:\-]?\s*\d+"
+    if re.search(pattern, text):
+        return ("PASS", "Account number field found on bill.")
+    return ("FAIL", "No labeled account number found.")
+
+
+def check_service_address(text):
+    pattern = r"(?i)service\s*address\s*[:\-]"
+    if re.search(pattern, text):
+        return ("PASS", "Service address field found on bill.")
+    return ("FAIL", "No 'Service Address' field found.")
+
+
+def check_billing_address(text):
+    pattern = r"(?i)(billing|mailing)\s*address\s*[:\-]"
+    if re.search(pattern, text):
+        return ("PASS", "Billing address field found on bill.")
+    if re.search(r"(?i)service\s*address\s*[:\-]", text):
+        return ("FAIL", "No distinct 'Billing Address' field found — may be combined with service address (verify manually).")
+    return ("FAIL", "No billing or mailing address field found.")
+
+
+def check_esi_id(text):
+    label_pattern = r"(?i)esi\s*[\-\s]?id\s*[:\-]?"
+    esiid_format = r"\b10\d{15}\b"
+    has_label = re.search(label_pattern, text)
+    has_format_match = re.search(esiid_format, text)
+    if has_label and has_format_match:
+        return ("PASS", "ESI ID field found, with a value matching the expected 17-digit format.")
+    if has_label and not has_format_match:
+        return ("FAIL", "ESI ID label found, but no value matching the expected 17-digit format nearby — verify manually.")
+    return ("FAIL", "No ESI ID field found.")
