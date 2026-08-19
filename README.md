@@ -829,6 +829,10 @@ N_VALUES_TO_TEST = [3, 5, 7, 10, 14, 21]     # candidate trigger days to compare
 # STEP 1: Load and clean
 # ------------------------------------------------------------
 df = pd.read_csv(INPUT_CSV)
+print("Columns found in CSV:", df.columns.tolist())  # TEMP DEBUG LINE — remove once fixed
+print("\norder_of_bill_label counts:\n", df["order_of_bill_label"].value_counts())  # TEMP DEBUG LINE
+print("\nUnique customers with 'Previous':", df[df["order_of_bill_label"] == "Previous"]["cust_id"].nunique())  # TEMP DEBUG LINE
+print("Unique customers with 'Current':", df[df["order_of_bill_label"] == "Current"]["cust_id"].nunique())  # TEMP DEBUG LINE
 df["PROFILE_DATE"] = pd.to_datetime(df["PROFILE_DATE"])
 df["FlowEnd"] = pd.to_datetime(df["FlowEnd"])
 df["service_start"] = pd.to_datetime(df["service_start"])
@@ -932,6 +936,3 @@ print("\nSaved detailed results to task7_trigger_backtest_results.csv")
 print("\nReminder: this only tests known switchers. Flag rate here is NOT a "
       "false-positive rate — that requires a control group of customers who "
       "stayed, which hasn't been pulled yet.")
-
-
-cust_id,Instance,sample_bill_no,FlowEnd,Premise_id,Bill_No,Bill_date,order_of_bill,order_of_bill_label,PROFILE_DATE,service_start,service_end,days_into_cycle,day_of_week,week_of_cycle,Total_Consumption,Hr_01,Hr_02,Hr_03,Hr_04,Hr_05,Hr_06,Hr_07,Hr_08,Hr_09,Hr_10,Hr_11,Hr_12,Hr_13,Hr_14,Hr_15,Hr_16,Hr_17,Hr_18,Hr_19,Hr_20,Hr_21,Hr_22,Hr_23,Hr_24,GenerationDate
