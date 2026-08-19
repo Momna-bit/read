@@ -1308,3 +1308,6 @@ results["account_number"] = check_account_number(text)
 results["service_address"] = check_service_address(text)
 results["billing_address"] = check_billing_address(text)
 results["esi_id"] = check_esi_id(text)
+
+
+for rule in ["solar", "refer_a_friend", "power_to_choose", "critical_care", "things_you_should_know", "unauthorized_charges", "puct_complaint_info", "tdu_contact", "customer_name", "account_number", "service_address", "billing_address", "esi_id"]:
