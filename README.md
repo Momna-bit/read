@@ -1605,3 +1605,7 @@ results["current_charges"] = check_current_charges(text)
 results["payments_adjustments"] = check_payments_adjustments(text)
 results["amount_due"] = check_amount_due(text)
 results["due_date_field"] = check_due_date(text)
+
+
+
+for rule in [..., "customer_name_billing_address", "bill_number", "bill_date_field", "bill_period", "previous_balance", "current_charges", "payments_adjustments", "amount_due", "due_date_field"]:
