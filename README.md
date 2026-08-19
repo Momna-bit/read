@@ -1361,3 +1361,87 @@ def check_esi_id(text):
     if has_label and not has_format_match:
         return ("FAIL", "ESI ID label found, but no value matching the expected 17-digit format nearby — verify manually.")
     return ("FAIL", "No ESI ID field found.")
+
+
+
+
+"""
+Bill PDF Audit — Section 2: Customer Information Checks (v3)
+
+REVISED after checking a real Tara Energy bill directly. Two real findings:
+
+1. account_number and esi_id/service_address just needed broader label
+   patterns ("Acct #" instead of "Account Number", "Service at Premise #"
+   instead of "Service Address" / "ESI ID"). Fixed below.
+
+2. customer_name and billing_address are a HARDER problem: on this real
+   bill, neither has ANY label at all — the name and mailing address are
+   just printed as plain text near the top, positionally, with nothing to
+   search for. A text-search regex fundamentally can't find an unlabeled
+   field. This is the same category of problem flagged for Section 10
+   (PDF Display & Formatting) in the original scope — it needs positional/
+   layout extraction (e.g. pdfplumber word coordinates), not a text search.
+
+   Below, these two checks are changed to a HONEST soft-check: look for
+   an address-shaped block (city, TX zip pattern) near the top of the
+   bill as a proxy signal, and flag every result for manual review rather
+   than claiming false confidence either way.
+"""
+
+import re
+
+
+def check_account_number(text):
+    """
+    2.2 — Account Number present.
+    Now accepts 'Acct #', 'Acct.', 'Account Number', 'Account No.' etc.
+    """
+    pattern = r"(?i)(account|acct)\.?\s*(number|no\.?|#)\s*[:\-]?\s*\d+"
+    if re.search(pattern, text):
+        return ("PASS", "Account number field found on bill.")
+    return ("FAIL", "No labeled account number found (checked 'Account Number', 'Acct #', 'Acct No.').")
+
+
+def check_service_address_and_esi_id(text):
+    """
+    2.3 / 2.5 combined — Tara-style bills print the ESI ID and service
+    premise together under one label ('Service at Premise #:'), followed
+    by the address. Checking both together avoids treating one real field
+    as two separate failures.
+    """
+    esiid_format = r"\b10\d{15}\b"  # 17 digits, starts with 10
+    label_pattern = r"(?i)service\s*(address|at\s*premise)\s*#?\s*[:\-]?"
+
+    has_label = re.search(label_pattern, text)
+    has_esiid = re.search(esiid_format, text)
+
+    if has_label and has_esiid:
+        return ("PASS", "Service premise field found, with a value matching the expected 17-digit ESI ID format.")
+    if has_esiid and not has_label:
+        return ("PASS", "A 17-digit ESI-ID-format number was found, though not under a recognized label — verify manually.")
+    if has_label and not has_esiid:
+        return ("FAIL", "Service address/premise label found, but no ESI-ID-format value nearby — verify manually.")
+    return ("FAIL", "No service address, premise number, or ESI ID found.")
+
+
+def check_customer_name_and_billing_address(text):
+    """
+    2.1 / 2.4 — HONEST LIMITATION: on real Tara bills, neither the
+    customer name nor the mailing address has a text label at all — both
+    are printed as plain, unlabeled lines near the top of the bill. A
+    text-search check cannot reliably confirm presence OR absence of an
+    unlabeled field; it can only look for a proxy signal.
+
+    Proxy used: a "City, TX #####" shaped address block near the top of
+    the extracted text (within roughly the first 600 characters, where
+    the customer block sits on the bills checked so far).
+
+    This ALWAYS returns a manual-review flag rather than a clean PASS —
+    a false PASS here would be worse than an honest "needs a look."
+    """
+    top_section = text[:600]
+    address_block_pattern = r"[A-Z][a-zA-Z\s]+,\s*TX\s*\d{5}(-\d{4})?"
+
+    if re.search(address_block_pattern, top_section):
+        return ("REVIEW", "Address-shaped text found near the top of the bill (likely the customer name/address block) — no label exists to confirm automatically. Manual check needed.")
+    return ("FAIL", "No name or address block detected near the top of the bill — worth a manual look, this may be a real gap or a layout this check doesn't cover yet.")
