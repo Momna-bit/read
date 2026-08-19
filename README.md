@@ -1075,3 +1075,143 @@ print("\nSaved detailed results to task7_trigger_backtest_results.csv")
 print("\nReminder: this only tests known switchers. Flag rate here is NOT a "
       "false-positive rate — that requires a control group of customers who "
       "stayed, which hasn't been pulled yet.")
+
+
+
+
+"""
+TASK 7: Pre-Bill Usage Alert — Switcher vs. Control Group Comparison
+
+Run with:  py task7_trigger_backtest_v3.py
+
+WHAT THIS DOES
+Runs the SAME within-cycle escalation flag logic (early-days pace vs.
+later-days pace, 30%+ over = flagged) against TWO groups:
+  1. Known SwitchBeforeBillDue customers (task7_batsmt_sample.csv)
+  2. Active, non-switched customers (task7_control_group_sample.csv)
+
+For switchers, the flag rate is roughly a "catch rate" — how many people
+who actually left would this have caught.
+For the control group, the flag rate IS the false-positive rate — how many
+people who stayed would this have wrongly flagged.
+
+A useful trigger day N is one where the switcher flag rate is meaningfully
+HIGHER than the control flag rate. If they're close, the logic isn't
+actually distinguishing switchers from everyone else at that N.
+
+ASSUMPTION FLAG — flip once Andres confirms:
+IS_CUMULATIVE = False means Total_Consumption / Hr_01-24 are daily values,
+not running cumulative totals. Flip to True if Andres says otherwise.
+"""
+
+import pandas as pd
+
+# ------------------------------------------------------------
+# CONFIG
+# ------------------------------------------------------------
+SWITCHER_CSV = "task7_batsmt_sample.csv"
+CONTROL_CSV = "task7_control_group_sample.csv"
+IS_CUMULATIVE = False
+FLAG_THRESHOLD_PCT = 30
+BASELINE_DAYS = 5
+N_VALUES_TO_TEST = [7, 10, 14, 21, 28]
+
+
+# ------------------------------------------------------------
+# STEP 1: Reusable function — loads a CSV and computes, for each
+# candidate N, what fraction of customers get flagged
+# ------------------------------------------------------------
+def compute_flag_rates(csv_path, group_label):
+    df = pd.read_csv(csv_path)
+    df["PROFILE_DATE"] = pd.to_datetime(df["PROFILE_DATE"])
+    df = df.sort_values(["cust_id", "Instance", "PROFILE_DATE"])
+
+    if IS_CUMULATIVE:
+        df["daily_usage"] = (
+            df.groupby(["cust_id", "Instance"])["Total_Consumption"]
+            .diff()
+            .fillna(df["Total_Consumption"])
+        )
+    else:
+        df["daily_usage"] = df["Total_Consumption"]
+
+    df["cumulative_usage"] = df.groupby(["cust_id", "Instance"])["daily_usage"].cumsum()
+
+    baseline = (
+        df[df["days_into_cycle"] <= BASELINE_DAYS]
+        .groupby(["cust_id", "Instance"])["daily_usage"]
+        .mean()
+        .reset_index()
+        .rename(columns={"daily_usage": "baseline_daily_avg"})
+    )
+
+    group_results = []
+    for n in N_VALUES_TO_TEST:
+        at_n = (
+            df[df["days_into_cycle"] == n]
+            [["cust_id", "Instance", "cumulative_usage"]]
+            .rename(columns={"cumulative_usage": "actual_cumulative_at_n"})
+        )
+        merged = at_n.merge(baseline, on=["cust_id", "Instance"], how="inner")
+        merged = merged[merged["baseline_daily_avg"] > 0]
+
+        merged["expected_cumulative_at_n"] = merged["baseline_daily_avg"] * n
+        merged["pct_over_baseline"] = (
+            (merged["actual_cumulative_at_n"] - merged["expected_cumulative_at_n"])
+            / merged["expected_cumulative_at_n"] * 100
+        )
+        merged["flagged"] = merged["pct_over_baseline"] >= FLAG_THRESHOLD_PCT
+
+        flag_rate = merged["flagged"].mean() * 100
+        n_customers = len(merged)
+        group_results.append({
+            "trigger_day_n": n,
+            "group": group_label,
+            "flag_rate_pct": flag_rate,
+            "n_customers": n_customers,
+        })
+
+    return pd.DataFrame(group_results)
+
+# Plain English: this function does the exact same "is this customer
+# running hot vs. their own early pace" check used before, but now it's
+# reusable — we call it once for switchers, once for the control group,
+# using identical logic so the comparison is fair.
+
+
+# ------------------------------------------------------------
+# STEP 2: Run it for both groups
+# ------------------------------------------------------------
+switcher_results = compute_flag_rates(SWITCHER_CSV, "Switchers")
+control_results = compute_flag_rates(CONTROL_CSV, "Control (stayed)")
+
+
+# ------------------------------------------------------------
+# STEP 3: Print a side-by-side comparison
+# ------------------------------------------------------------
+print(f"\n{'N':>4} | {'Switcher flag rate':>20} | {'Control flag rate':>19} | {'Gap':>8}")
+print("-" * 62)
+
+for n in N_VALUES_TO_TEST:
+    s_rate = switcher_results.loc[switcher_results["trigger_day_n"] == n, "flag_rate_pct"].values[0]
+    c_rate = control_results.loc[control_results["trigger_day_n"] == n, "flag_rate_pct"].values[0]
+    gap = s_rate - c_rate
+    print(f"{n:>4} | {s_rate:>18.1f}% | {c_rate:>17.1f}% | {gap:>+6.1f} pts")
+
+# Plain English: for each candidate trigger day, this prints the flag
+# rate for switchers next to the flag rate for people who stayed. The
+# "Gap" column is the real signal — a big positive gap means the flag
+# logic is actually telling switchers apart from everyone else at that
+# N. A small or negative gap means it's not distinguishing them well.
+
+
+# ------------------------------------------------------------
+# STEP 4: Save combined results
+# ------------------------------------------------------------
+combined = pd.concat([switcher_results, control_results], ignore_index=True)
+combined.to_csv("task7_switcher_vs_control_results.csv", index=False)
+
+print("\nSaved combined comparison to task7_switcher_vs_control_results.csv")
+print("\nReminder: control group Status filter (Status <> 'I') was a guess —")
+print("worth double-checking against real distinct Status values before")
+print("presenting this to Jonathan as final.")
