@@ -1478,3 +1478,9 @@ def check_customer_name_and_billing_address(text):
 
 
 marker = {"PASS": "[PASS]", "FAIL": "[FAIL]", "SKIP": "[SKIP]", "REVIEW": "[REVIEW]"}[status]
+
+
+
+results["account_number"] = check_account_number(text)
+results["service_address_esi_id"] = check_service_address_and_esi_id(text)
+results["customer_name_billing_address"] = check_customer_name_and_billing_address(text)
