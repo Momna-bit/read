@@ -1484,3 +1484,113 @@ marker = {"PASS": "[PASS]", "FAIL": "[FAIL]", "SKIP": "[SKIP]", "REVIEW": "[REVI
 results["account_number"] = check_account_number(text)
 results["service_address_esi_id"] = check_service_address_and_esi_id(text)
 results["customer_name_billing_address"] = check_customer_name_and_billing_address(text)
+
+
+
+"""
+Bill PDF Audit — Section 3: Billing Summary Checks
+
+Covers:
+  3.1 Bill Number
+  3.2 Bill Date
+  3.3 Bill Period
+  3.4 Previous Balance
+  3.5 Current Charges
+  3.6 Payments/Adjustments
+  3.7 Amount Due
+  3.8 Due Date
+
+IMPORTANT — built from ONE confirmed real bill format (Tara Energy,
+residential TNMP sample). That bill actually says "New Charges" not
+"Current Charges", and "Due Amount" not "Amount Due" — the opposite of
+what the checklist section names imply. Patterns below accept BOTH the
+checklist wording AND the real observed wording, but this hasn't been
+verified against Amigo or Just Energy bill formats yet — worth spot
+checking one bill from each brand before trusting these at full scale,
+same lesson as Section 2.
+"""
+
+import re
+
+
+def check_bill_number(text):
+    """3.1 — Bill Number present."""
+    pattern = r"(?i)bill\s*(number|no\.?|#)\s*[:\-]?\s*\d+"
+    if re.search(pattern, text):
+        return ("PASS", "Bill number field found.")
+    return ("FAIL", "No labeled bill number found.")
+
+
+def check_bill_date(text):
+    """3.2 — Bill Date present."""
+    pattern = r"(?i)bill\s*date\s*[:\-]?\s*\d{1,2}/\d{1,2}/\d{2,4}"
+    if re.search(pattern, text):
+        return ("PASS", "Bill date field found.")
+    return ("FAIL", "No labeled bill date found.")
+
+
+def check_bill_period(text):
+    """3.3 — Bill Period present."""
+    pattern = r"(?i)bill\s*period\s*[:\-]?\s*\d{1,2}/\d{1,2}/\d{2,4}"
+    if re.search(pattern, text):
+        return ("PASS", "Bill period field found.")
+    return ("FAIL", "No labeled bill period found.")
+
+
+def _label_then_nearby_value(text, label_pattern, value_pattern, window=150):
+    """
+    Helper: PDF table extraction often puts column headers on one line
+    and values on a separate line below (not immediately adjacent), so
+    checking for label-followed-directly-by-value is too strict. This
+    looks for the label, then checks if a matching value appears
+    anywhere within `window` characters after it.
+    """
+    match = re.search(label_pattern, text)
+    if not match:
+        return False
+    nearby = text[match.end(): match.end() + window]
+    return bool(re.search(value_pattern, nearby))
+
+
+def check_previous_balance(text):
+    """3.4 — Previous Balance present."""
+    if _label_then_nearby_value(text, r"(?i)previous\s*balance", r"\$?-?\d"):
+        return ("PASS", "Previous balance field found, with a nearby value.")
+    return ("FAIL", "No labeled previous balance found (or no value nearby).")
+
+
+def check_current_charges(text):
+    """
+    3.5 — Current Charges present.
+    Accepts both 'Current Charges' (checklist wording) and 'New Charges'
+    (actual wording seen on the real Tara bill).
+    """
+    if _label_then_nearby_value(text, r"(?i)(current|new)\s*charges", r"\$?-?\d"):
+        return ("PASS", "Current/new charges field found, with a nearby value.")
+    return ("FAIL", "No labeled current/new charges found (checked both 'Current Charges' and 'New Charges').")
+
+
+def check_payments_adjustments(text):
+    """3.6 — Payments/Adjustments present."""
+    pattern = r"(?i)payments\s*/?\s*adj(ustments?)?\.?\s*[:\-]?"
+    if re.search(pattern, text):
+        return ("PASS", "Payments/Adjustments field found.")
+    return ("FAIL", "No labeled payments/adjustments field found.")
+
+
+def check_amount_due(text):
+    """
+    3.7 — Amount Due present.
+    Accepts both 'Amount Due' (checklist wording) and 'Due Amount'
+    (actual wording seen on the real Tara bill).
+    """
+    if _label_then_nearby_value(text, r"(?i)(amount\s*due|due\s*amount)", r"\$?\d"):
+        return ("PASS", "Amount due field found, with a nearby value.")
+    return ("FAIL", "No labeled amount due found (checked both 'Amount Due' and 'Due Amount').")
+
+
+def check_due_date(text):
+    """3.8 — Due Date present."""
+    if _label_then_nearby_value(text, r"(?i)due\s*(date|by)", r"\d{1,2}/\d{1,2}/\d{2,4}"):
+        return ("PASS", "Due date field found, with a nearby value.")
+    return ("FAIL", "No labeled due date found (or no date value nearby).")
