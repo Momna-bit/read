@@ -1729,3 +1729,12 @@ def check_due_date(text):
     if _label_then_nearby_value(text, r"(?i)due\s*(date|by)", r"\d{1,2}/\d{1,2}/\d{2,4}"):
         return ("PASS", "Due date field found, with a nearby value.")
     return ("FAIL", "No labeled due date found (or no date value nearby).")
+
+
+
+results = check_bill(path, account_type, territory)
+if results is None:
+    print(f"\n{fname}  -- SKIPPED (check_bill returned no results, likely a PDF text-extraction issue)")
+    continue
+print_result(results)
+all_results.append(results)
