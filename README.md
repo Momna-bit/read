@@ -788,3 +788,148 @@ def check_puct_complaint_info(text):
 
     print("Fixed! The three functions now return 'PASS'/'FAIL' strings, matching every other check in the file.")
 
+
+
+"""
+TASK 7: Pre-Bill Usage Alert — N-Day Trigger Backtest
+
+Run with:  py task7_trigger_backtest.py
+
+WHAT THIS DOES
+Loads the BAT_SMT pull (task7_batsmt_backtest_pull.sql output, saved as CSV)
+and tests: "if we'd checked usage at day N of the cycle, would we have caught
+that this customer was running hot compared to their own historical pace?"
+
+IMPORTANT CAVEAT — read before trusting the output:
+This sample is ONLY customers who ended up SwitchBeforeBillDue (confirmed
+switchers). There's no comparison group of customers who stayed. So this
+script can tell you "how many known switchers would this have flagged, and
+how early" — it CANNOT yet tell you a false-positive rate, because we
+haven't pulled a control group of customers who did NOT switch. That's a
+next step once this logic itself looks reasonable.
+
+ASSUMPTION FLAG — flip this once Andres confirms:
+IS_CUMULATIVE = False means Total_Consumption / Hr_01-24 are treated as each
+day's own usage (summed across days to get cycle-to-date totals). If Andres
+confirms the source data is already a running cumulative total, flip this to
+True and the script will diff consecutive days instead of summing them.
+"""
+
+import pandas as pd
+
+# ------------------------------------------------------------
+# CONFIG — adjust these as needed
+# ------------------------------------------------------------
+INPUT_CSV = "task7_batsmt_sample.csv"       # exported from the SQL pull
+IS_CUMULATIVE = False                        # flip once Andres confirms
+FLAG_THRESHOLD_PCT = 30                      # matches Task 3's 30% usage-alert threshold
+N_VALUES_TO_TEST = [3, 5, 7, 10, 14, 21]     # candidate trigger days to compare
+
+# ------------------------------------------------------------
+# STEP 1: Load and clean
+# ------------------------------------------------------------
+df = pd.read_csv(INPUT_CSV)
+df["PROFILE_DATE"] = pd.to_datetime(df["PROFILE_DATE"])
+df["FlowEnd"] = pd.to_datetime(df["FlowEnd"])
+df["service_start"] = pd.to_datetime(df["service_start"])
+
+# Plain English: loads the CSV and makes sure date columns are real dates,
+# not text, so we can do date math later.
+
+
+# ------------------------------------------------------------
+# STEP 2: If usage is cumulative, convert to daily by diffing
+# ------------------------------------------------------------
+df = df.sort_values(["cust_id", "Instance", "order_of_bill_label", "PROFILE_DATE"])
+
+if IS_CUMULATIVE:
+    df["daily_usage"] = (
+        df.groupby(["cust_id", "Instance", "order_of_bill_label"])["Total_Consumption"]
+        .diff()
+        .fillna(df["Total_Consumption"])  # first day of cycle has no prior row to diff against
+    )
+else:
+    df["daily_usage"] = df["Total_Consumption"]
+
+# Plain English: if the source data turns out to be a running total, this
+# subtracts each day's value from the day before to get that single day's
+# actual usage. If it's already daily (our current assumption), we just use
+# it as-is.
+
+
+# ------------------------------------------------------------
+# STEP 3: Build cumulative usage-by-day-into-cycle, split by
+# Previous vs Current cycle, per customer
+# ------------------------------------------------------------
+df["cumulative_usage"] = (
+    df.groupby(["cust_id", "Instance", "order_of_bill_label"])["daily_usage"]
+    .cumsum()
+)
+
+previous_cycle = df[df["order_of_bill_label"] == "Previous"].copy()
+current_cycle = df[df["order_of_bill_label"] == "Current"].copy()
+
+# Plain English: for each customer, this builds a running total of usage
+# so far, separately for their Previous cycle (the baseline/"normal" pace)
+# and their Current cycle (what we're checking against that baseline).
+
+
+# ------------------------------------------------------------
+# STEP 4: For each candidate N, compare current-cycle pace at
+# day N against the SAME customer's previous-cycle pace at day N
+# ------------------------------------------------------------
+results = []
+
+for n in N_VALUES_TO_TEST:
+    prev_at_n = (
+        previous_cycle[previous_cycle["days_into_cycle"] == n]
+        [["cust_id", "Instance", "cumulative_usage"]]
+        .rename(columns={"cumulative_usage": "previous_cycle_usage_at_n"})
+    )
+    curr_at_n = (
+        current_cycle[current_cycle["days_into_cycle"] == n]
+        [["cust_id", "Instance", "cumulative_usage", "FlowEnd", "PROFILE_DATE"]]
+        .rename(columns={"cumulative_usage": "current_cycle_usage_at_n"})
+    )
+
+    merged = curr_at_n.merge(prev_at_n, on=["cust_id", "Instance"], how="inner")
+
+    # skip customers whose previous-cycle baseline is 0 to avoid divide-by-zero
+    merged = merged[merged["previous_cycle_usage_at_n"] > 0]
+
+    merged["pct_over_baseline"] = (
+        (merged["current_cycle_usage_at_n"] - merged["previous_cycle_usage_at_n"])
+        / merged["previous_cycle_usage_at_n"] * 100
+    )
+    merged["flagged"] = merged["pct_over_baseline"] >= FLAG_THRESHOLD_PCT
+    merged["days_before_flowend"] = (merged["FlowEnd"] - merged["PROFILE_DATE"]).dt.days
+    merged["trigger_day_n"] = n
+
+    results.append(merged)
+
+    flag_rate = merged["flagged"].mean() * 100
+    avg_lead_time = merged.loc[merged["flagged"], "days_before_flowend"].mean()
+    n_customers = len(merged)
+
+    print(f"N={n:>2} days: {flag_rate:5.1f}% of {n_customers} customers flagged "
+          f"| avg lead time if flagged: {avg_lead_time:.1f} days before they left")
+
+# Plain English: for each candidate trigger day (3, 5, 7, 10, 14, 21), this
+# checks every customer's usage-so-far against their own historical pace at
+# that same point in the cycle. If they're running 30%+ hotter, they get
+# flagged. It also reports, on average, how many days BEFORE the customer
+# actually left we would have caught the warning sign — that's the real
+# early-warning value we're testing for.
+
+
+# ------------------------------------------------------------
+# STEP 5: Save full results for review
+# ------------------------------------------------------------
+all_results = pd.concat(results, ignore_index=True)
+all_results.to_csv("task7_trigger_backtest_results.csv", index=False)
+
+print("\nSaved detailed results to task7_trigger_backtest_results.csv")
+print("\nReminder: this only tests known switchers. Flag rate here is NOT a "
+      "false-positive rate — that requires a control group of customers who "
+      "stayed, which hasn't been pulled yet.")
+
