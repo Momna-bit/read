@@ -1300,3 +1300,11 @@ def check_esi_id(text):
     if has_label and not has_format_match:
         return ("FAIL", "ESI ID label found, but no value matching the expected 17-digit format nearby — verify manually.")
     return ("FAIL", "No ESI ID field found.")
+
+
+
+results["customer_name"] = check_customer_name(text, account_type, territory)
+results["account_number"] = check_account_number(text)
+results["service_address"] = check_service_address(text)
+results["billing_address"] = check_billing_address(text)
+results["esi_id"] = check_esi_id(text)
