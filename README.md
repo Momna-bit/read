@@ -1218,3 +1218,141 @@ print("presenting this to Jonathan as final.")
 
 
 cust_id,Instance,Premise_id,Bill_No,Bill_date,order_of_bill,order_of_bill_label,PROFILE_DATE,service_start,service_end,days_into_cycle,day_of_week,week_of_cycle,Total_Consumption,Hr_01,Hr_02,Hr_03,Hr_04,Hr_05,Hr_06,Hr_07,Hr_08,Hr_09,Hr_10,Hr_11,Hr_12,Hr_13,Hr_14,Hr_15,Hr_16,Hr_17,Hr_18,Hr_19,Hr_20,Hr_21,Hr_22,Hr_23,Hr_24,GenerationDate
+
+
+
+"""
+Bill PDF Audit — Section 2: Customer Information Checks
+
+Presence checks only (text-search based), matching the existing
+convention: each function returns ("PASS"/"FAIL", message).
+
+Covers:
+  2.1 Customer Name
+  2.2 Account Number
+  2.3 Service Address
+  2.4 Billing Address
+  2.5 ESI ID
+
+NOTE: These are written standalone since I don't have your current
+check_bill_rules.py in this session. Paste these functions in alongside
+your existing Category 7 checks, and add each one to whatever loop/list
+currently calls things like things_you_should_know(), unauthorized_charges(),
+etc. so they show up in both single-file and batch mode output.
+"""
+
+import re
+
+
+def check_customer_name(text, account_type=None, territory=None):
+    """
+    2.1 — Customer Name present on the bill.
+    Looks for a labeled name field. Real bills vary in exact label wording
+    (e.g. "Name:", "Customer Name:", "Bill To:"), so this checks a few
+    common variants rather than one fixed string.
+    """
+    patterns = [
+        r"(?i)customer\s*name\s*[:\-]",
+        r"(?i)\bname\s*[:\-]",
+        r"(?i)bill\s*to\s*[:\-]",
+    ]
+    for pat in patterns:
+        if re.search(pat, text):
+            return ("PASS", "Customer name field found on bill.")
+    return ("FAIL", "No customer name field found (checked 'Customer Name:', 'Name:', 'Bill To:').")
+
+
+def check_account_number(text):
+    """
+    2.2 — Account Number present.
+    Looks for a labeled account number, not just any long digit string,
+    to avoid false-passing on unrelated numbers (bill number, phone, etc.)
+    """
+    pattern = r"(?i)account\s*(number|no\.?|#)\s*[:\-]?\s*\d+"
+    if re.search(pattern, text):
+        return ("PASS", "Account number field found on bill.")
+    return ("FAIL", "No labeled account number found.")
+
+
+def check_service_address(text):
+    """
+    2.3 — Service Address present.
+    Looks for a labeled service address field, distinct from billing
+    address (2.4) since bills commonly show both separately when they
+    differ (e.g. rental property billed to owner's home address).
+    """
+    pattern = r"(?i)service\s*address\s*[:\-]"
+    if re.search(pattern, text):
+        return ("PASS", "Service address field found on bill.")
+    return ("FAIL", "No 'Service Address' field found.")
+
+
+def check_billing_address(text):
+    """
+    2.4 — Billing Address present.
+    Some bills only show one address total when service and billing
+    address are the same — treat a single unlabeled address block as
+    a soft pass, but flag it distinctly from a true failure so it's
+    easy to review manually rather than silently counted as compliant.
+    """
+    pattern = r"(?i)(billing|mailing)\s*address\s*[:\-]"
+    if re.search(pattern, text):
+        return ("PASS", "Billing address field found on bill.")
+    # Soft-pass check: if a service address exists but no distinct billing
+    # address, it MAY mean they're combined — worth a manual look, not an
+    # automatic fail.
+    if re.search(r"(?i)service\s*address\s*[:\-]", text):
+        return ("FAIL", "No distinct 'Billing Address' field found — may be combined with service address (verify manually).")
+    return ("FAIL", "No billing or mailing address field found.")
+
+
+def check_esi_id(text):
+    """
+    2.5 — ESI ID present.
+    ESI IDs in Texas follow a known format: starts with '10' and is
+    17 digits total (e.g. 10443720004773769, seen in BAT_SMT data).
+    Checking for the labeled field AND the correct digit pattern nearby,
+    since a bare 17-digit number alone could be a coincidence.
+    """
+    label_pattern = r"(?i)esi\s*[\-\s]?id\s*[:\-]?"
+    esiid_format = r"\b10\d{15}\b"  # 17 digits total, starts with 10
+
+    has_label = re.search(label_pattern, text)
+    has_format_match = re.search(esiid_format, text)
+
+    if has_label and has_format_match:
+        return ("PASS", "ESI ID field found, with a value matching the expected 17-digit format.")
+    if has_label and not has_format_match:
+        return ("FAIL", "ESI ID label found, but no value matching the expected 17-digit format nearby — verify manually.")
+    return ("FAIL", "No ESI ID field found.")
+
+
+# ------------------------------------------------------------
+# Convenience wrapper — run all Section 2 checks at once and
+# return a list of (check_name, status, message) tuples, matching
+# the shape your summary/failure counter likely already expects.
+# Adjust the tuple shape here if your existing counter expects
+# something different.
+# ------------------------------------------------------------
+def run_section2_checks(text, account_type=None, territory=None):
+    checks = [
+        ("Customer Name", check_customer_name(text, account_type, territory)),
+        ("Account Number", check_account_number(text)),
+        ("Service Address", check_service_address(text)),
+        ("Billing Address", check_billing_address(text)),
+        ("ESI ID", check_esi_id(text)),
+    ]
+    return [(name, status, msg) for name, (status, msg) in checks]
+
+
+if __name__ == "__main__":
+    # Quick manual smoke test — replace with a real extracted PDF text
+    # string to sanity check before wiring into the full tool.
+    sample_text = """
+    Customer Name: Jane Doe
+    Account Number: 1234567890
+    Service Address: 123 Main St, Houston, TX
+    ESI ID: 10443720004773769
+    """
+    for name, status, msg in run_section2_checks(sample_text):
+        print(f"[{status}] {name}: {msg}")
