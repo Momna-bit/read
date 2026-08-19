@@ -1215,3 +1215,6 @@ print("\nSaved combined comparison to task7_switcher_vs_control_results.csv")
 print("\nReminder: control group Status filter (Status <> 'I') was a guess —")
 print("worth double-checking against real distinct Status values before")
 print("presenting this to Jonathan as final.")
+
+
+cust_id,Instance,Premise_id,Bill_No,Bill_date,order_of_bill,order_of_bill_label,PROFILE_DATE,service_start,service_end,days_into_cycle,day_of_week,week_of_cycle,Total_Consumption,Hr_01,Hr_02,Hr_03,Hr_04,Hr_05,Hr_06,Hr_07,Hr_08,Hr_09,Hr_10,Hr_11,Hr_12,Hr_13,Hr_14,Hr_15,Hr_16,Hr_17,Hr_18,Hr_19,Hr_20,Hr_21,Hr_22,Hr_23,Hr_24,GenerationDate
