@@ -2873,3 +2873,6 @@ if __name__ == "__main__":
 #     is not implemented - would need numeric extraction and a real
 #     formula check, a different task from presence-only checking.
 # ---------------------------------------------------------------------------
+
+
+Create a summary page with: a card showing total unique bills checked, a donut chart showing the breakdown of Status (PASS/FAIL/REVIEW/SKIP), a bar chart showing failure count by Check sorted highest to lowest, and a table showing Status by Territory.”
