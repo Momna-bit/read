@@ -5680,3 +5680,23 @@ Get-ChildItem -Filter *.pdf -Recurse | ForEach-Object {
         }
     }
 } | Format-Table -AutoSize
+
+
+
+
+# STEP: Build the correct manifest from real PDF filenames only
+$manifestRows = Get-ChildItem -Filter *.pdf -Recurse | ForEach-Object {
+    $name = $_.Name
+
+    # Manual override for the one file missing "Account" in its name
+    if ($name -eq "JE Commercial AEP North Utility_Critical Care Message 8237308_2604438376_20260427.pdf") {
+        [PSCustomObject]@{ filename = $name; account_type = "Commercial"; territory = "AEP North" }
+    }
+    elseif ($name -match '^(Amigo|JE|Tara)\s+(Commercial|Residential)\s+[Aa]ccount\s*_?\s*(AEP Central|AEP North|CenterPoint|Oncor|TNMP|Lubbock)\s+Utility') {
+        [PSCustomObject]@{ filename = $name; account_type = $matches[2]; territory = $matches[3] }
+    }
+    # Anything else (the 4 sample/template files) is silently skipped — not a real bill
+}
+
+Write-Host "Total real bill rows in new manifest:" $manifestRows.Count
+$manifestRows | Format-Table -AutoSize
