@@ -5096,3 +5096,70 @@ WHERE Queue LIKE '%ResiAdvHandling%'
    OR Queue LIKE '%OTC_Outbound_FCC_Consent_Yes_Active%'
 GROUP BY Queue
 ORDER BY Queue;
+
+
+
+
+
+-- STEP 1: Map all confirmed real queues to English/Spanish, filtered to Inbound/Transfer only
+-- This replaces per-queue granularity with a simple ENG vs SPA rollup, per Jonathan's new scope
+SELECT
+    CASE
+        WHEN Queue IN (
+            'BillingResidentialENG - South',
+            'DNPResidentialENG - South',
+            'HEB Hotline South - ENG',
+            'Kroger Hotline South - ENG',
+            'Sam''s Club Hotline South-ENG',
+            'OTC_Outbound_FCC_Consent_No',
+            'OTC_Outbound_FCC_Consent_Yes_Active',
+            'ResiAdvHandlingENG',
+            'ResidentialAdv_EnrollmentENG'
+        ) THEN 'English'
+        WHEN Queue IN (
+            'BillingResidentialSPA - South',
+            'DNPResidentialSPA - South',
+            'HEB Hotline South - SPA',
+            'Kroger Hotline South - SPA',
+            'Sam''s Club Hotline South-SPA',
+            'SPA_OTC_Outbound_FCC_Consent_No',
+            'SPA_OTC_Outbound_FCC_Consent_Yes_Active',
+            'ResiAdvHandlingSPA',
+            'ResidentialAdv_EnrollmentSPA'
+        ) THEN 'Spanish'
+        ELSE NULL
+    END AS Language,
+    CallType,
+    COUNT(*) AS TotalCalls
+FROM dbo.IVR
+WHERE CallType IN ('Inbound', 'Transfer')
+  AND Queue IN (
+        'BillingResidentialENG - South', 'BillingResidentialSPA - South',
+        'DNPResidentialENG - South', 'DNPResidentialSPA - South',
+        'HEB Hotline South - ENG', 'HEB Hotline South - SPA',
+        'Kroger Hotline South - ENG', 'Kroger Hotline South - SPA',
+        'Sam''s Club Hotline South-ENG', 'Sam''s Club Hotline South-SPA',
+        'OTC_Outbound_FCC_Consent_No', 'SPA_OTC_Outbound_FCC_Consent_No',
+        'OTC_Outbound_FCC_Consent_Yes_Active', 'SPA_OTC_Outbound_FCC_Consent_Yes_Active',
+        'ResiAdvHandlingENG', 'ResiAdvHandlingSPA',
+        'ResidentialAdv_EnrollmentENG', 'ResidentialAdv_EnrollmentSPA'
+    )
+GROUP BY
+    CASE
+        WHEN Queue IN (
+            'BillingResidentialENG - South', 'DNPResidentialENG - South', 'HEB Hotline South - ENG',
+            'Kroger Hotline South - ENG', 'Sam''s Club Hotline South-ENG',
+            'OTC_Outbound_FCC_Consent_No', 'OTC_Outbound_FCC_Consent_Yes_Active',
+            'ResiAdvHandlingENG', 'ResidentialAdv_EnrollmentENG'
+        ) THEN 'English'
+        WHEN Queue IN (
+            'BillingResidentialSPA - South', 'DNPResidentialSPA - South', 'HEB Hotline South - SPA',
+            'Kroger Hotline South - SPA', 'Sam''s Club Hotline South-SPA',
+            'SPA_OTC_Outbound_FCC_Consent_No', 'SPA_OTC_Outbound_FCC_Consent_Yes_Active',
+            'ResiAdvHandlingSPA', 'ResidentialAdv_EnrollmentSPA'
+        ) THEN 'Spanish'
+        ELSE NULL
+    END,
+    CallType
+ORDER BY Language, CallType;
+
