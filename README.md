@@ -5653,3 +5653,7 @@ Get-ChildItem "Amigoo Commercial_Residential Invoices_All Util*" -Filter *.pdf -
 Get-ChildItem "JE Commercial_Residential Invoices_All Util*" -Filter *.pdf -Recurse | Measure-Object
 Get-ChildItem "Tara Commercial_Residential Invoices_All U*" -Filter *.pdf -Recurse | Measure-Object
 
+
+
+# STEP 1: List every real PDF filename actually sitting in your Bill PDF folder and subfolders
+Get-ChildItem -Filter *.pdf -Recurse | Select-Object -ExpandProperty Name
