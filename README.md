@@ -5058,3 +5058,11 @@ Get-ChildItem -Filter *.pdf | Where-Object { $manifestFiles -notcontains $_.Name
 
 Get-Item bill_manifest_full.csv | Select-Object Length, LastWriteTime
 Get-Content bill_manifest_full.csv -TotalCount 5
+
+
+
+(Import-Csv bill_manifest_full.csv | Select-Object -ExpandProperty filename -Unique).Count
+
+
+$deduped = Import-Csv bill_manifest_full.csv | Group-Object filename | ForEach-Object { $_.Group[0] }
+$deduped | Export-Csv bill_manifest_full_clean.csv -NoTypeInformation
