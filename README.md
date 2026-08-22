@@ -5278,3 +5278,85 @@ FROM (
         DATEADD(MINUTE, (DATEDIFF(MINUTE, 0, CallDate) / 15) * 15, 0)
 ) AS Base
 ORDER BY Language, CallDay, Interval15Min;
+
+
+
+
+
+import pandas as pd
+import numpy as np
+
+# STEP 1: Load the 90-day ENG/SPA interval data
+df = pd.read_csv(
+    "eng_spa_15min_90day.csv",
+    names=["Language", "CallDay", "Interval15Min", "CallCount"],
+    header=0
+)
+
+df["CallDay"] = pd.to_datetime(df["CallDay"])
+df["Interval15Min"] = pd.to_datetime(df["Interval15Min"])
+df["DayOfWeek"] = df["CallDay"].dt.dayofweek  # Monday=0 ... Sunday=6
+df["TimeOfDay15"] = df["Interval15Min"].dt.time
+
+print("Rows loaded:", len(df))
+print(df["Language"].value_counts())
+
+# STEP 2: Backtest function — leave-one-out day-of-week + time-of-day average
+def backtest(df, time_col, freq_label):
+    results = []
+    for lang in df["Language"].unique():
+        sub = df[df["Language"] == lang].copy()
+
+        # Build day-of-week + time-of-day average, excluding the day being tested
+        for day in sub["CallDay"].unique():
+            test_day = sub[sub["CallDay"] == day]
+            dow = pd.Timestamp(day).dayofweek
+
+            # Training data: same day-of-week, but NOT this specific day
+            train = sub[(sub["DayOfWeek"] == dow) & (sub["CallDay"] != day)]
+
+            avg_by_time = train.groupby(time_col)["CallCount"].mean()
+
+            for _, row in test_day.iterrows():
+                actual = row["CallCount"]
+                forecast = avg_by_time.get(row[time_col], np.nan)
+                if pd.notna(forecast):
+                    error = abs(actual - forecast)
+                    pct_error = error / actual if actual > 0 else np.nan
+                    results.append({
+                        "Language": lang,
+                        "CallDay": day,
+                        "TimeSlot": row[time_col],
+                        "Actual": actual,
+                        "Forecast": forecast,
+                        "AbsError": error,
+                        "PctError": pct_error
+                    })
+
+    result_df = pd.DataFrame(results)
+    valid = result_df.dropna(subset=["PctError"])
+    mape = valid["PctError"].mean() * 100
+    within_15pct = (valid["PctError"] <= 0.15).mean() * 100
+    print(f"\n--- {freq_label} granularity ---")
+    print(f"Average error (MAPE): {mape:.1f}%")
+    print(f"Within 15% of actual: {within_15pct:.1f}%")
+    return result_df, mape
+
+# STEP 3: Run backtest at 15-minute granularity
+results_15min, mape_15 = backtest(df, "TimeOfDay15", "15-minute")
+
+# STEP 4: Build 30-minute buckets by rolling up the 15-min data, then backtest
+df_30 = df.copy()
+df_30["Interval30Min"] = df_30["Interval15Min"].dt.floor("30min")
+df_30 = df_30.groupby(["Language", "CallDay", "Interval30Min", "DayOfWeek"], as_index=False)["CallCount"].sum()
+df_30["TimeOfDay30"] = df_30["Interval30Min"].dt.time
+
+results_30min, mape_30 = backtest(df_30, "TimeOfDay30", "30-minute")
+
+# STEP 5: Save both result sets for the visual/deck later
+results_15min.to_csv("eng_spa_15min_backtest_results.csv", index=False)
+results_30min.to_csv("eng_spa_30min_backtest_results.csv", index=False)
+
+print("\n=== SUMMARY ===")
+print(f"15-minute average error: {mape_15:.1f}%")
+print(f"30-minute average error: {mape_30:.1f}%")
