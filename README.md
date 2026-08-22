@@ -5360,3 +5360,83 @@ results_30min.to_csv("eng_spa_30min_backtest_results.csv", index=False)
 print("\n=== SUMMARY ===")
 print(f"15-minute average error: {mape_15:.1f}%")
 print(f"30-minute average error: {mape_30:.1f}%")
+
+
+
+
+
+import pandas as pd
+import matplotlib.pyplot as plt
+import matplotlib.dates as mdates
+
+# STEP 1: Load the same 90-day data used for the backtest
+df = pd.read_csv(
+    "eng_spa_15min_90day.csv",
+    names=["Language", "CallDay", "Interval15Min", "CallCount"],
+    header=0
+)
+df["CallDay"] = pd.to_datetime(df["CallDay"])
+df["Interval15Min"] = pd.to_datetime(df["Interval15Min"])
+df["DayOfWeek"] = df["CallDay"].dt.dayofweek
+df["TimeOfDay15"] = df["Interval15Min"].dt.time
+
+# STEP 2: Build a forward forecast for the next 7 days at 15-minute granularity
+# Uses the day-of-week + time-of-day average from all 90 days of real history
+last_day = df["CallDay"].max()
+future_days = pd.date_range(last_day + pd.Timedelta(days=1), periods=7, freq="D")
+
+def build_forward_forecast(data, time_col, freq_minutes):
+    avg_lookup = data.groupby(["Language", "DayOfWeek", time_col])["CallCount"].mean().reset_index()
+    rows = []
+    for day in future_days:
+        dow = day.dayofweek
+        day_avgs = avg_lookup[avg_lookup["DayOfWeek"] == dow]
+        for _, r in day_avgs.iterrows():
+            t = r[time_col]
+            timestamp = pd.Timestamp.combine(day.date(), t)
+            rows.append({
+                "Language": r["Language"],
+                "Timestamp": timestamp,
+                "ForecastCalls": r["CallCount"]
+            })
+    return pd.DataFrame(rows).sort_values("Timestamp")
+
+forecast_15 = build_forward_forecast(df, "TimeOfDay15", 15)
+
+# STEP 3: Build the 30-minute version by rolling up 15-min data first
+df_30 = df.copy()
+df_30["Interval30Min"] = df_30["Interval15Min"].dt.floor("30min")
+df_30 = df_30.groupby(["Language", "CallDay", "Interval30Min", "DayOfWeek"], as_index=False)["CallCount"].sum()
+df_30["TimeOfDay30"] = df_30["Interval30Min"].dt.time
+
+forecast_30 = build_forward_forecast(df_30, "TimeOfDay30", 30)
+
+# STEP 4: Save the forward forecasts for reference / Excel export later
+forecast_15.to_csv("forward_forecast_15min.csv", index=False)
+forecast_30.to_csv("forward_forecast_30min.csv", index=False)
+
+# STEP 5: Build the side-by-side visual
+fig, axes = plt.subplots(1, 2, figsize=(16, 6), sharey=True)
+
+for lang, color in [("English", "#005CB9"), ("Spanish", "#00BB86")]:
+    sub15 = forecast_15[forecast_15["Language"] == lang]
+    axes[0].plot(sub15["Timestamp"], sub15["ForecastCalls"], label=lang, color=color, linewidth=1.2)
+
+    sub30 = forecast_30[forecast_30["Language"] == lang]
+    axes[1].plot(sub30["Timestamp"], sub30["ForecastCalls"], label=lang, color=color, linewidth=1.2)
+
+axes[0].set_title("Predicted Calls Every 15 Minutes\n(Next 7 Days)", fontsize=13)
+axes[1].set_title("Predicted Calls Every 30 Minutes\n(Next 7 Days)", fontsize=13)
+
+for ax in axes:
+    ax.set_xlabel("Day and Time")
+    ax.set_ylabel("Number of Calls Expected")
+    ax.xaxis.set_major_formatter(mdates.DateFormatter("%a %m/%d"))
+    ax.legend(title="Language")
+    ax.grid(alpha=0.3)
+
+plt.tight_layout()
+plt.savefig("forecast_visual_15min_vs_30min.png", dpi=200)
+print("Saved: forecast_visual_15min_vs_30min.png")
+print("Saved: forward_forecast_15min.csv")
+print("Saved: forward_forecast_30min.csv")
