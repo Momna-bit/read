@@ -5735,3 +5735,7 @@ Rename-Item "bill_manifest_full_FIXED.csv" "bill_manifest_full.csv"
 
 
 py check_bill_rules_WITH_EXCEL.py
+
+py check_bill_rules_WITH_EXCEL.py --batch "." --manifest "bill_manifest_full.csv" --excel "bill_audit_report.xlsx"
+
+
