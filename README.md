@@ -5083,3 +5083,16 @@ FROM dbo.IVR
 WHERE Queue LIKE '%South%'
 GROUP BY Queue
 ORDER BY Queue;
+
+
+
+-- STEP: Check if the remaining confirmed queue names exist in real IVR data
+-- Looking for: ResiAdvHandling, ResidentialAdv_Enrollment, and the two OTC_Consent_No variants
+SELECT DISTINCT Queue, COUNT(*) AS TotalCalls
+FROM dbo.IVR
+WHERE Queue LIKE '%ResiAdvHandling%'
+   OR Queue LIKE '%ResidentialAdv%Enrollment%'
+   OR Queue LIKE '%OTC_Outbound_FCC_Consent_No%'
+   OR Queue LIKE '%OTC_Outbound_FCC_Consent_Yes_Active%'
+GROUP BY Queue
+ORDER BY Queue;
