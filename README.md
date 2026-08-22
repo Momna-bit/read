@@ -5639,3 +5639,17 @@ except FileNotFoundError:
 combined_log.to_csv("live_deviation_alert_log.csv", index=False)
 print(f"\nLogged to live_deviation_alert_log.csv")
 
+
+
+
+# STEP: Check whether known sample filenames appear in the manifest
+$manifest = Import-Csv bill_manifest_full.csv
+$manifest | Where-Object { $_.filename -like "*Amigo*" -or $_.filename -like "*Just_Energy*" -or $_.filename -like "*Tara*" }
+
+
+
+# STEP: See how many actual PDF files sit inside those three subfolders
+Get-ChildItem "Amigoo Commercial_Residential Invoices_All Util*" -Filter *.pdf -Recurse | Measure-Object
+Get-ChildItem "JE Commercial_Residential Invoices_All Util*" -Filter *.pdf -Recurse | Measure-Object
+Get-ChildItem "Tara Commercial_Residential Invoices_All U*" -Filter *.pdf -Recurse | Measure-Object
+
