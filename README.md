@@ -5657,3 +5657,26 @@ Get-ChildItem "Tara Commercial_Residential Invoices_All U*" -Filter *.pdf -Recur
 
 # STEP 1: List every real PDF filename actually sitting in your Bill PDF folder and subfolders
 Get-ChildItem -Filter *.pdf -Recurse | Select-Object -ExpandProperty Name
+
+
+
+
+# STEP: Parse brand, account type, and territory out of every real PDF filename
+Get-ChildItem -Filter *.pdf -Recurse | ForEach-Object {
+    $name = $_.Name
+    if ($name -match '^(Amigo|JE|Tara)\s+(Commercial|Residential)\s+[Aa]ccount\s*_?\s*(AEP Central|AEP North|CenterPoint|Oncor|TNMP|Lubbock)\s+Utility') {
+        [PSCustomObject]@{
+            filename     = $name
+            brand        = $matches[1]
+            account_type = $matches[2]
+            territory    = $matches[3]
+        }
+    } else {
+        [PSCustomObject]@{
+            filename     = $name
+            brand        = "NO MATCH"
+            account_type = "NO MATCH"
+            territory    = "NO MATCH"
+        }
+    }
+} | Format-Table -AutoSize
