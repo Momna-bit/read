@@ -5739,3 +5739,10 @@ py check_bill_rules_WITH_EXCEL.py
 py check_bill_rules_WITH_EXCEL.py --batch "." --manifest "bill_manifest_full.csv" --excel "bill_audit_report.xlsx"
 
 
+
+
+# STEP: Open the Excel summary tab and check which filenames were actually checked
+# Or, quicker — scroll your terminal up to find the full list of checked files
+
+# STEP: Get the list of files the script checked, from its own summary output
+py check_bill_rules_WITH_EXCEL.py --batch "." --manifest "bill_manifest_full.csv" --excel "bill_audit_report_TEST.xlsx" | Select-String "Checking:|Processing:|\.pdf"
