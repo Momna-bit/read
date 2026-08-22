@@ -5578,3 +5578,64 @@ print(f"\nAugust 12th windows flagged: {len(aug12_flagged)}")
 if len(aug12_flagged) > 0:
     print(aug12_flagged[["Language", "Interval15Min", "CallCount", "TypicalCalls", "DeviationScore"]].to_string(index=False))
 
+
+
+import pandas as pd
+import numpy as np
+
+# STEP 1: Load the full history (same query/export as before, but re-pulled fresh
+# each time this runs, so it always reflects the latest available data)
+df = pd.read_csv(
+    "eng_spa_15min_90day.csv",
+    names=["Language", "CallDay", "Interval15Min", "CallCount"],
+    header=0
+)
+df["CallDay"] = pd.to_datetime(df["CallDay"])
+df["Interval15Min"] = pd.to_datetime(df["Interval15Min"])
+df["DayOfWeek"] = df["CallDay"].dt.dayofweek
+df["TimeOfDay15"] = df["Interval15Min"].dt.time
+
+# STEP 2: Define "today" as the most recent complete day in the data.
+# Data is one day delayed, so this naturally reflects that lag.
+most_recent_day = df["CallDay"].max()
+print(f"Most recent day in data: {most_recent_day.date()}")
+
+# STEP 3: Build the baseline pattern using everything EXCEPT the day we're checking,
+# so the check never "peeks" at the day it's evaluating
+baseline = df[df["CallDay"] < most_recent_day]
+stats = baseline.groupby(["Language", "DayOfWeek", "TimeOfDay15"])["CallCount"].agg(
+    ["mean", "std", "count"]
+).reset_index()
+stats.rename(columns={"mean": "TypicalCalls", "std": "TypicalWobble"}, inplace=True)
+stats["ReliableSlot"] = stats["count"] >= 5
+
+# STEP 4: Check only the most recent day against that baseline
+today_data = df[df["CallDay"] == most_recent_day].copy()
+checked = today_data.merge(stats, on=["Language", "DayOfWeek", "TimeOfDay15"], how="left")
+checked["DeviationScore"] = (checked["CallCount"] - checked["TypicalCalls"]) / checked["TypicalWobble"]
+checked["Flagged"] = (checked["DeviationScore"].abs() >= 2.5) & (checked["ReliableSlot"])
+
+flagged_today = checked[checked["Flagged"]].sort_values("DeviationScore", ascending=False)
+
+# STEP 5: Report results — this is what would run daily going forward
+print(f"\nWindows checked for {most_recent_day.date()}: {len(checked)}")
+print(f"Flagged as unusual: {len(flagged_today)}")
+
+if len(flagged_today) > 0:
+    print("\n*** ALERT: Unusual call volume detected ***")
+    print(flagged_today[["Language", "Interval15Min", "CallCount", "TypicalCalls", "DeviationScore"]].to_string(index=False))
+else:
+    print("\nNo unusual activity detected today.")
+
+# STEP 6: Append today's results to a running log, so history builds up over time
+log_entry = checked.copy()
+log_entry["CheckedOn"] = pd.Timestamp.now()
+try:
+    existing_log = pd.read_csv("live_deviation_alert_log.csv")
+    combined_log = pd.concat([existing_log, log_entry], ignore_index=True)
+except FileNotFoundError:
+    combined_log = log_entry
+
+combined_log.to_csv("live_deviation_alert_log.csv", index=False)
+print(f"\nLogged to live_deviation_alert_log.csv")
+
