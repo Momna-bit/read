@@ -5711,3 +5711,19 @@ $manifestRows | Export-Csv -Path "bill_manifest_full_FIXED.csv" -NoTypeInformati
 Import-Csv "bill_manifest_full_FIXED.csv" | Measure-Object
 Get-Content "bill_manifest_full_FIXED.csv" -TotalCount 3
 
+
+
+# STEP: Export the manifest, then strip the BOM so it's plain UTF-8
+$manifestRows | Export-Csv -Path "bill_manifest_full_FIXED.csv" -NoTypeInformation -Encoding UTF8
+
+# Re-read and re-save without the BOM
+$content = Get-Content -Path "bill_manifest_full_FIXED.csv" -Raw
+[System.IO.File]::WriteAllText("$PWD\bill_manifest_full_FIXED.csv", $content, [System.Text.UTF8Encoding]::new($false))
+
+
+
+
+# STEP: Confirm the new file's row count and that headers look right
+Import-Csv "bill_manifest_full_FIXED.csv" | Measure-Object
+Get-Content "bill_manifest_full_FIXED.csv" -TotalCount 3
+
