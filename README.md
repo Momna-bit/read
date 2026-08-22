@@ -5066,3 +5066,8 @@ Get-Content bill_manifest_full.csv -TotalCount 5
 
 $deduped = Import-Csv bill_manifest_full.csv | Group-Object filename | ForEach-Object { $_.Group[0] }
 $deduped | Export-Csv bill_manifest_full_clean.csv -NoTypeInformation
+
+
+(Get-Content bill_manifest_full.csv | Select-Object -Skip 1 | Sort-Object -Unique).Count
+Import-Csv bill_manifest_full.csv | Group-Object filename | ForEach-Object { $_.Group[0] } | Export-Csv bill_manifest_full_clean.csv -NoTypeInformation
+
