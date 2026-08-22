@@ -5523,3 +5523,58 @@ print("Saved: forecast_visual_15min_vs_30min.png")
 print("Saved: forward_forecast_15min.csv")
 print("Saved: forward_forecast_30min.csv")
 
+
+
+
+
+import pandas as pd
+import numpy as np
+
+# STEP 1: Load the same 90-day ENG/SPA interval data
+df = pd.read_csv(
+    "eng_spa_15min_90day.csv",
+    names=["Language", "CallDay", "Interval15Min", "CallCount"],
+    header=0
+)
+df["CallDay"] = pd.to_datetime(df["CallDay"])
+df["Interval15Min"] = pd.to_datetime(df["Interval15Min"])
+df["DayOfWeek"] = df["CallDay"].dt.dayofweek
+df["TimeOfDay15"] = df["Interval15Min"].dt.time
+
+# STEP 2: For each Language + DayOfWeek + TimeOfDay slot, compute the normal
+# average and how much it typically wobbles (standard deviation)
+stats = df.groupby(["Language", "DayOfWeek", "TimeOfDay15"])["CallCount"].agg(
+    ["mean", "std", "count"]
+).reset_index()
+stats.rename(columns={"mean": "TypicalCalls", "std": "TypicalWobble"}, inplace=True)
+
+# Slots with very few historical observations get an unreliable std dev —
+# flag those separately rather than risk false alerts
+stats["ReliableSlot"] = stats["count"] >= 5
+
+# STEP 3: Merge stats back onto every real day/slot, then flag any window that's
+# more than 2.5 standard deviations away from its own typical pattern
+merged = df.merge(stats, on=["Language", "DayOfWeek", "TimeOfDay15"], how="left")
+
+merged["DeviationScore"] = (merged["CallCount"] - merged["TypicalCalls"]) / merged["TypicalWobble"]
+merged["Flagged"] = (merged["DeviationScore"].abs() >= 2.5) & (merged["ReliableSlot"])
+
+flagged = merged[merged["Flagged"]].copy()
+flagged = flagged.sort_values("DeviationScore", ascending=False)
+
+# STEP 4: Save the full history with flags, plus a separate file of just the flagged spikes
+merged.to_csv("eng_spa_deviation_alert_full_history.csv", index=False)
+flagged.to_csv("eng_spa_deviation_alert_flagged.csv", index=False)
+
+print(f"Total 15-min windows checked: {len(merged)}")
+print(f"Flagged as unusual: {len(flagged)} ({len(flagged)/len(merged)*100:.2f}%)")
+print("\nTop 10 largest deviations found:")
+print(flagged[["Language", "CallDay", "Interval15Min", "CallCount", "TypicalCalls", "DeviationScore"]].head(10).to_string(index=False))
+
+# STEP 5: Specifically check whether the alert re-discovers the August 12th outage
+aug12 = merged[(merged["CallDay"] == "2026-08-12")]
+aug12_flagged = aug12[aug12["Flagged"]]
+print(f"\nAugust 12th windows flagged: {len(aug12_flagged)}")
+if len(aug12_flagged) > 0:
+    print(aug12_flagged[["Language", "Interval15Min", "CallCount", "TypicalCalls", "DeviationScore"]].to_string(index=False))
+
