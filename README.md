@@ -5746,3 +5746,7 @@ py check_bill_rules_WITH_EXCEL.py --batch "." --manifest "bill_manifest_full.csv
 
 # STEP: Get the list of files the script checked, from its own summary output
 py check_bill_rules_WITH_EXCEL.py --batch "." --manifest "bill_manifest_full.csv" --excel "bill_audit_report_TEST.xlsx" | Select-String "Checking:|Processing:|\.pdf"
+
+
+
+pdf_files = glob.glob(os.path.join(batch_dir, "**/*.pdf"), recursive=True)
