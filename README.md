@@ -5047,3 +5047,8 @@ if __name__ == "__main__":
 #     is not implemented - would need numeric extraction and a real
 #     formula check, a different task from presence-only checking.
 # ---------------------------------------------------------------------------
+
+
+
+$manifestFiles = (Import-Csv bill_manifest_full.csv).filename
+Get-ChildItem -Filter *.pdf | Where-Object { $manifestFiles -notcontains $_.Name }
