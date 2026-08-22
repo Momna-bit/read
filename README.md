@@ -5071,3 +5071,15 @@ $deduped | Export-Csv bill_manifest_full_clean.csv -NoTypeInformation
 (Get-Content bill_manifest_full.csv | Select-Object -Skip 1 | Sort-Object -Unique).Count
 Import-Csv bill_manifest_full.csv | Group-Object filename | ForEach-Object { $_.Group[0] } | Export-Csv bill_manifest_full_clean.csv -NoTypeInformation
 
+
+
+
+
+Get-ChildItem -Filter *.sql -Recurse | Select-String -Pattern "STEP 1|STEP 2|Queue IN" | Select-Object Path, LineNumber, Line
+
+
+SELECT DISTINCT Queue, COUNT(*) AS TotalCalls
+FROM dbo.IVR
+WHERE Queue LIKE '%South%'
+GROUP BY Queue
+ORDER BY Queue;
