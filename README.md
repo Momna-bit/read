@@ -5052,3 +5052,9 @@ if __name__ == "__main__":
 
 $manifestFiles = (Import-Csv bill_manifest_full.csv).filename
 Get-ChildItem -Filter *.pdf | Where-Object { $manifestFiles -notcontains $_.Name }
+
+
+(Get-ChildItem -Filter *.pdf -Recurse).Count
+
+Get-Item bill_manifest_full.csv | Select-Object Length, LastWriteTime
+Get-Content bill_manifest_full.csv -TotalCount 5
