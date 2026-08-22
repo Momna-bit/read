@@ -5440,3 +5440,86 @@ plt.savefig("forecast_visual_15min_vs_30min.png", dpi=200)
 print("Saved: forecast_visual_15min_vs_30min.png")
 print("Saved: forward_forecast_15min.csv")
 print("Saved: forward_forecast_30min.csv")
+
+
+
+import pandas as pd
+import matplotlib.pyplot as plt
+import matplotlib.dates as mdates
+
+# STEP 1: Load the same 90-day data used for the backtest
+df = pd.read_csv(
+    "eng_spa_15min_90day.csv",
+    names=["Language", "CallDay", "Interval15Min", "CallCount"],
+    header=0
+)
+df["CallDay"] = pd.to_datetime(df["CallDay"])
+df["Interval15Min"] = pd.to_datetime(df["Interval15Min"])
+df["DayOfWeek"] = df["CallDay"].dt.dayofweek
+df["TimeOfDay15"] = df["Interval15Min"].dt.time
+
+# STEP 2: Build a forward forecast for the next 7 days, filling every 15-min slot
+# so hours with genuinely zero calls show as flat zero, not a sloped gap
+last_day = df["CallDay"].max()
+future_days = pd.date_range(last_day + pd.Timedelta(days=1), periods=7, freq="D")
+all_slots = pd.date_range("00:00", "23:45", freq="15min").time
+all_slots_30 = pd.date_range("00:00", "23:30", freq="30min").time
+
+def build_forward_forecast(data, time_col, all_time_slots):
+    avg_lookup = data.groupby(["Language", "DayOfWeek", time_col])["CallCount"].mean().reset_index()
+    rows = []
+    for day in future_days:
+        dow = day.dayofweek
+        for lang in data["Language"].unique():
+            day_avgs = avg_lookup[(avg_lookup["DayOfWeek"] == dow) & (avg_lookup["Language"] == lang)]
+            lookup = dict(zip(day_avgs[time_col], day_avgs["CallCount"]))
+            for t in all_time_slots:
+                timestamp = pd.Timestamp.combine(day.date(), t)
+                # If no historical data exists for this slot, treat it as a true zero
+                rows.append({
+                    "Language": lang,
+                    "Timestamp": timestamp,
+                    "ForecastCalls": lookup.get(t, 0)
+                })
+    return pd.DataFrame(rows).sort_values("Timestamp")
+
+forecast_15 = build_forward_forecast(df, "TimeOfDay15", all_slots)
+
+# STEP 3: Build the 30-minute version by rolling up 15-min data first
+df_30 = df.copy()
+df_30["Interval30Min"] = df_30["Interval15Min"].dt.floor("30min")
+df_30 = df_30.groupby(["Language", "CallDay", "Interval30Min", "DayOfWeek"], as_index=False)["CallCount"].sum()
+df_30["TimeOfDay30"] = df_30["Interval30Min"].dt.time
+
+forecast_30 = build_forward_forecast(df_30, "TimeOfDay30", all_slots_30)
+
+# STEP 4: Save the forward forecasts for reference / Excel export later
+forecast_15.to_csv("forward_forecast_15min.csv", index=False)
+forecast_30.to_csv("forward_forecast_30min.csv", index=False)
+
+# STEP 5: Build the side-by-side visual
+fig, axes = plt.subplots(1, 2, figsize=(16, 6), sharey=True)
+
+for lang, color in [("English", "#005CB9"), ("Spanish", "#00BB86")]:
+    sub15 = forecast_15[forecast_15["Language"] == lang]
+    axes[0].plot(sub15["Timestamp"], sub15["ForecastCalls"], label=lang, color=color, linewidth=1.2)
+
+    sub30 = forecast_30[forecast_30["Language"] == lang]
+    axes[1].plot(sub30["Timestamp"], sub30["ForecastCalls"], label=lang, color=color, linewidth=1.2)
+
+axes[0].set_title("Predicted Calls Every 15 Minutes\n(Next 7 Days)", fontsize=13)
+axes[1].set_title("Predicted Calls Every 30 Minutes\n(Next 7 Days)", fontsize=13)
+
+for ax in axes:
+    ax.set_xlabel("Day and Time")
+    ax.set_ylabel("Number of Calls Expected")
+    ax.xaxis.set_major_formatter(mdates.DateFormatter("%a %m/%d"))
+    ax.legend(title="Language")
+    ax.grid(alpha=0.3)
+
+plt.tight_layout()
+plt.savefig("forecast_visual_15min_vs_30min.png", dpi=200)
+print("Saved: forecast_visual_15min_vs_30min.png")
+print("Saved: forward_forecast_15min.csv")
+print("Saved: forward_forecast_30min.csv")
+
