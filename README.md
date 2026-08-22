@@ -5727,3 +5727,11 @@ $content = Get-Content -Path "bill_manifest_full_FIXED.csv" -Raw
 Import-Csv "bill_manifest_full_FIXED.csv" | Measure-Object
 Get-Content "bill_manifest_full_FIXED.csv" -TotalCount 3
 
+
+
+# STEP: Back up the old broken manifest first, just in case, then replace it
+Rename-Item "bill_manifest_full.csv" "bill_manifest_full_BROKEN_20260822.csv"
+Rename-Item "bill_manifest_full_FIXED.csv" "bill_manifest_full.csv"
+
+
+py check_bill_rules_WITH_EXCEL.py
