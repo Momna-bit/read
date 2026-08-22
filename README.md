@@ -5700,3 +5700,14 @@ $manifestRows = Get-ChildItem -Filter *.pdf -Recurse | ForEach-Object {
 
 Write-Host "Total real bill rows in new manifest:" $manifestRows.Count
 $manifestRows | Format-Table -AutoSize
+
+
+
+# STEP: Export the correct manifest as plain UTF-8, no BOM — same standard as before
+$manifestRows | Export-Csv -Path "bill_manifest_full_FIXED.csv" -NoTypeInformation -Encoding utf8NoBOM
+
+
+# STEP: Confirm the new file's row count and that headers look right
+Import-Csv "bill_manifest_full_FIXED.csv" | Measure-Object
+Get-Content "bill_manifest_full_FIXED.csv" -TotalCount 3
+
