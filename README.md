@@ -5939,3 +5939,19 @@ FROM (
 ) AS Base
 ORDER BY Language, CallDay, Interval15Min;
 
+
+
+
+-- STEP 2c: 15-minute interval call data, Chunk 3 of 8
+SELECT
+    Language,
+    CallDay,
+    Interval15Min,
+    CallCount
+FROM (
+    SELECT
+        CASE
+            WHEN Queue IN (
+                'BillingResidentialENG - South', 'DNPResidentialENG - South', 'HEB Hotline South - ENG',
+                'Kroger Hotline South - ENG', 'Sam''s Club Hotline South-ENG',
+                'OTC_Outbound_FCC_Consent_No', 'OTC_Outbound_FCC_Consent_Yes_Active',
