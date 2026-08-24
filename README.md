@@ -6443,3 +6443,77 @@ active = pd.read_csv("active_customers_2year.csv", names=["TheDay", "ActiveCusto
 
 
 calls["ActiveCustomers"] = calls["ActiveCustomers"].ffill()  # fill any gaps
+
+
+
+
+import pandas as pd
+import numpy as np
+from sklearn.ensemble import RandomForestRegressor
+
+# STEP 1: Load the 2-year interval data and the daily active customer counts
+calls = pd.read_csv("eng_spa_15min_2year_combined.csv")
+calls["CallDay"] = pd.to_datetime(calls["CallDay"])
+calls["Interval15Min"] = pd.to_datetime(calls["Interval15Min"])
+
+active = pd.read_csv("active_customers_2year.csv", names=["TheDay", "ActiveCustomers"], header=None)
+active["TheDay"] = pd.to_datetime(active["TheDay"])
+
+# STEP 2: Build features the model can learn from
+calls["DayOfWeek"] = calls["CallDay"].dt.dayofweek
+calls["Month"] = calls["CallDay"].dt.month
+calls["Hour"] = calls["Interval15Min"].dt.hour
+calls["Minute"] = calls["Interval15Min"].dt.minute
+calls["MinuteOfDay"] = calls["Hour"] * 60 + calls["Minute"]
+calls["IsWeekend"] = calls["DayOfWeek"].isin([5, 6]).astype(int)
+
+calls = calls.merge(active[["TheDay", "ActiveCustomers"]], left_on="CallDay", right_on="TheDay", how="left")
+calls["ActiveCustomers"] = calls["ActiveCustomers"].ffill()
+
+# STEP 3: Build lag features - same time slot, same day of week, going back multiple weeks
+# A smoother multi-week average should help lower-volume Spanish slots specifically
+calls = calls.sort_values(["Language", "DayOfWeek", "MinuteOfDay", "CallDay"])
+grp = calls.groupby(["Language", "DayOfWeek", "MinuteOfDay"])["CallCount"]
+
+calls["SameSlotLastWeek"] = grp.shift(1)
+calls["SameSlotAvg4Week"] = grp.shift(1).rolling(4, min_periods=2).mean().reset_index(level=[0,1,2], drop=True)
+
+calls = calls.dropna(subset=["SameSlotLastWeek", "SameSlotAvg4Week"])
+
+# STEP 4: Encode Language as a number
+calls["IsEnglish"] = (calls["Language"] == "English").astype(int)
+
+FEATURES = ["DayOfWeek", "Month", "MinuteOfDay", "IsWeekend", "ActiveCustomers",
+            "SameSlotLastWeek", "SameSlotAvg4Week", "IsEnglish"]
+TARGET = "CallCount"
+
+# STEP 5: Time-based train/test split - last 90 days as test
+last_day = calls["CallDay"].max()
+cutoff = last_day - pd.Timedelta(days=90)
+
+train = calls[calls["CallDay"] < cutoff]
+test = calls[calls["CallDay"] >= cutoff]
+
+print(f"Training rows: {len(train)}, Testing rows: {len(test)}")
+
+# STEP 6: Train the Random Forest model
+model = RandomForestRegressor(n_estimators=300, max_depth=18, min_samples_leaf=3, random_state=42, n_jobs=-1)
+model.fit(train[FEATURES], train[TARGET])
+
+# STEP 7: Predict on the test set and measure accuracy
+test = test.copy()
+test["Predicted"] = model.predict(test[FEATURES]).clip(min=0)
+
+for lang in ["English", "Spanish"]:
+    sub = test[test["Language"] == lang]
+    valid = sub[sub[TARGET] > 0]
+    mape = (abs(valid[TARGET] - valid["Predicted"]) / valid[TARGET]).mean() * 100
+    print(f"{lang} — Random Forest average error: {mape:.1f}%")
+
+# STEP 8: Feature importance
+importances = pd.Series(model.feature_importances_, index=FEATURES).sort_values(ascending=False)
+print("\nWhich factors mattered most to the model:")
+print(importances.to_string())
+
+test.to_csv("random_forest_test_predictions_v2.csv", index=False)
+print("\nSaved: random_forest_test_predictions_v2.csv")
