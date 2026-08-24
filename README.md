@@ -6526,3 +6526,9 @@ calls["SameSlotAvg4Week"] = grp.transform(lambda s: s.shift(1).rolling(4, min_pe
 
 calls["SameSlotAvg4Week"] = grp.transform(lambda s: s.shift(1).rolling(4, min_periods=2).mean())
 calls["SameSlotAvg8Week"] = grp.transform(lambda s: s.shift(1).rolling(8, min_periods=3).mean())
+
+
+
+calls = calls.dropna(subset=["SameSlotLastWeek", "SameSlotAvg4Week", "SameSlotAvg8Week"])
+FEATURES = ["DayOfWeek", "Month", "MinuteOfDay", "IsWeekend", "ActiveCustomers",
+            "SameSlotLastWeek", "SameSlotAvg4Week", "SameSlotAvg8Week", "IsEnglish"]
