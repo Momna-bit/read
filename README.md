@@ -6815,3 +6815,14 @@ print('Contains Excel Report Guide.pdf:', any('Excel Report Guide' in str(f) for
 
 
 py check_bill_rules_WITH_EXCEL.py --batch "." --manifest "bill_manifest_full.csv" --excel "bill_audit_report.xlsx"
+
+
+py -c "
+import openpyxl
+wb = openpyxl.load_workbook('bill_audit_report.xlsx')
+ws = wb['Results']
+print('Total rows in Results tab:', ws.max_row - 1)
+files = [ws.cell(row=r, column=1).value for r in range(2, ws.max_row + 1)]
+print('Contains Excel Report Guide.pdf:', any('Excel Report Guide' in str(f) for f in files))
+"
+
