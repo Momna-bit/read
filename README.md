@@ -6440,3 +6440,6 @@ print("\nSaved: random_forest_test_predictions.csv")
 
 active = pd.read_csv("active_customers_2year.csv", names=["TheDay", "ActiveCustomers"], header=None)
 
+
+
+calls["ActiveCustomers"] = calls["ActiveCustomers"].ffill()  # fill any gaps
