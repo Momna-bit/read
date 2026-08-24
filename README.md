@@ -6702,3 +6702,53 @@ daily_forward = daily_forward.rename(columns={"PredictedCalls": "PredictedDailyC
 daily_forward.to_csv("rf_forward_forecast_12month_daily.csv", index=False)
 print(f"Saved: rf_forward_forecast_12month_daily.csv ({len(daily_forward)} rows)")
 
+
+
+
+import pandas as pd
+import matplotlib.pyplot as plt
+import matplotlib.dates as mdates
+
+# STEP 1: Load the 90-day 15-min Random Forest forecast
+forecast_90 = pd.read_csv("rf_forward_forecast_90day_15min.csv")
+forecast_90["Date"] = pd.to_datetime(forecast_90["Date"])
+forecast_90["Timestamp"] = pd.to_datetime(forecast_90["Date"].astype(str) + " " + forecast_90["Time"])
+
+# Only plot the first 7 days for a clean, readable chart (matches the earlier visual style)
+last_start = forecast_90["Date"].min()
+first_week = forecast_90[forecast_90["Date"] < last_start + pd.Timedelta(days=7)]
+
+# STEP 2: Build the 7-day chart (Random Forest version)
+fig, ax = plt.subplots(figsize=(14, 6))
+for lang, color in [("English", "#005CB9"), ("Spanish", "#00BB86")]:
+    sub = first_week[first_week["Language"] == lang]
+    ax.plot(sub["Timestamp"], sub["PredictedCalls"], label=lang, color=color, linewidth=1.2)
+
+ax.set_title("Random Forest Forecast — Predicted Calls Every 15 Minutes (Next 7 Days)", fontsize=13)
+ax.set_xlabel("Day and Time")
+ax.set_ylabel("Number of Calls Expected")
+ax.xaxis.set_major_formatter(mdates.DateFormatter("%a %m/%d"))
+ax.legend(title="Language")
+ax.grid(alpha=0.3)
+plt.tight_layout()
+plt.savefig("rf_forecast_visual_7day.png", dpi=200)
+print("Saved: rf_forecast_visual_7day.png")
+
+# STEP 3: Build the 12-month daily view
+daily = pd.read_csv("rf_forward_forecast_12month_daily.csv")
+daily["Date"] = pd.to_datetime(daily["Date"])
+
+fig2, ax2 = plt.subplots(figsize=(14, 6))
+for lang, color in [("English", "#005CB9"), ("Spanish", "#00BB86")]:
+    sub = daily[daily["Language"] == lang]
+    ax2.plot(sub["Date"], sub["PredictedDailyCalls"], label=lang, color=color, linewidth=1.0)
+
+ax2.set_title("Random Forest Forecast — Predicted Calls Per Day (Next 12 Months)", fontsize=13)
+ax2.set_xlabel("Date")
+ax2.set_ylabel("Total Calls Expected That Day")
+ax2.xaxis.set_major_formatter(mdates.DateFormatter("%b %Y"))
+ax2.legend(title="Language")
+ax2.grid(alpha=0.3)
+plt.tight_layout()
+plt.savefig("rf_forecast_visual_12month.png", dpi=200)
+print("Saved: rf_forecast_visual_12month.png")
