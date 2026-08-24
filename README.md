@@ -5750,3 +5750,41 @@ py check_bill_rules_WITH_EXCEL.py --batch "." --manifest "bill_manifest_full.csv
 
 
 pdf_files = glob.glob(os.path.join(batch_dir, "**/*.pdf"), recursive=True)
+
+
+
+
+
+import pandas as pd
+import matplotlib.pyplot as plt
+
+# STEP 1: Load the backtest results (already has Actual vs Forecast per window)
+df = pd.read_csv("eng_spa_15min_backtest_results.csv")
+df["CallDay"] = pd.to_datetime(df["CallDay"])
+df["TimeSlot"] = pd.to_datetime(df["TimeSlot"], format="%H:%M:%S").dt.time
+
+# STEP 2: Build a real timestamp so we can plot in order across days
+df["Timestamp"] = df.apply(lambda r: pd.Timestamp.combine(r["CallDay"], r["TimeSlot"]), axis=1)
+df = df.sort_values("Timestamp")
+
+# STEP 3: Pick one real week to plot clearly (last 7 days of the backtest)
+last_day = df["CallDay"].max()
+one_week = df[df["CallDay"] >= last_day - pd.Timedelta(days=6)]
+
+# STEP 4: Plot Actual vs Forecast, one chart per language
+fig, axes = plt.subplots(2, 1, figsize=(14, 10), sharex=True)
+
+for ax, lang in zip(axes, ["English", "Spanish"]):
+    sub = one_week[one_week["Language"] == lang]
+    ax.plot(sub["Timestamp"], sub["Actual"], label="What Actually Happened", color="#004061", linewidth=1.3)
+    ax.plot(sub["Timestamp"], sub["Forecast"], label="What We Predicted", color="#F4A600", linewidth=1.3, linestyle="--")
+    ax.set_title(f"{lang} — Real Calls vs. Predicted Calls (Last 7 Days)")
+    ax.set_ylabel("Number of Calls")
+    ax.legend()
+    ax.grid(alpha=0.3)
+
+axes[-1].set_xlabel("Day and Time")
+plt.tight_layout()
+plt.savefig("actual_vs_forecast_last_week.png", dpi=200)
+print("Saved: actual_vs_forecast_last_week.png")
+
