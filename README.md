@@ -6532,3 +6532,121 @@ calls["SameSlotAvg8Week"] = grp.transform(lambda s: s.shift(1).rolling(8, min_pe
 calls = calls.dropna(subset=["SameSlotLastWeek", "SameSlotAvg4Week", "SameSlotAvg8Week"])
 FEATURES = ["DayOfWeek", "Month", "MinuteOfDay", "IsWeekend", "ActiveCustomers",
             "SameSlotLastWeek", "SameSlotAvg4Week", "SameSlotAvg8Week", "IsEnglish"]
+
+
+
+
+import pandas as pd
+import numpy as np
+from sklearn.ensemble import RandomForestRegressor
+
+# STEP 1: Load and prepare the same features as the trained model
+calls = pd.read_csv("eng_spa_15min_2year_combined.csv")
+calls["CallDay"] = pd.to_datetime(calls["CallDay"])
+calls["Interval15Min"] = pd.to_datetime(calls["Interval15Min"])
+
+active = pd.read_csv("active_customers_2year.csv", names=["TheDay", "ActiveCustomers"], header=None)
+active["TheDay"] = pd.to_datetime(active["TheDay"])
+
+calls["DayOfWeek"] = calls["CallDay"].dt.dayofweek
+calls["Month"] = calls["CallDay"].dt.month
+calls["Hour"] = calls["Interval15Min"].dt.hour
+calls["Minute"] = calls["Interval15Min"].dt.minute
+calls["MinuteOfDay"] = calls["Hour"] * 60 + calls["Minute"]
+calls["IsWeekend"] = calls["DayOfWeek"].isin([5, 6]).astype(int)
+
+calls = calls.merge(active[["TheDay", "ActiveCustomers"]], left_on="CallDay", right_on="TheDay", how="left")
+calls["ActiveCustomers"] = calls["ActiveCustomers"].ffill()
+
+calls = calls.sort_values(["Language", "DayOfWeek", "MinuteOfDay", "CallDay"])
+grp = calls.groupby(["Language", "DayOfWeek", "MinuteOfDay"])["CallCount"]
+calls["SameSlotLastWeek"] = grp.shift(1)
+calls["SameSlotAvg4Week"] = grp.transform(lambda s: s.shift(1).rolling(4, min_periods=2).mean())
+calls["SameSlotAvg8Week"] = grp.transform(lambda s: s.shift(1).rolling(8, min_periods=3).mean())
+calls = calls.dropna(subset=["SameSlotLastWeek", "SameSlotAvg4Week", "SameSlotAvg8Week"])
+calls["IsEnglish"] = (calls["Language"] == "English").astype(int)
+
+FEATURES = ["DayOfWeek", "Month", "MinuteOfDay", "IsWeekend", "ActiveCustomers",
+            "SameSlotLastWeek", "SameSlotAvg4Week", "SameSlotAvg8Week", "IsEnglish"]
+TARGET = "CallCount"
+
+# STEP 2: Train the FINAL model on ALL available history (not held-out test this time -
+# we already proved accuracy in the backtest, now we want the best possible real forecast)
+model = RandomForestRegressor(n_estimators=300, max_depth=18, min_samples_leaf=3, random_state=42, n_jobs=-1)
+model.fit(calls[FEATURES], calls[TARGET])
+
+# STEP 3: Build the forward feature set for the next 90 days, 15-min level
+last_day = calls["CallDay"].max()
+future_days = pd.date_range(last_day + pd.Timedelta(days=1), periods=90, freq="D")
+all_slots = pd.date_range("00:00", "23:45", freq="15min").time
+
+# Use the most recent known active customer count as a flat assumption going forward
+# (a real customer-growth projection would need its own model - flagged as a known simplification)
+latest_active = active.sort_values("TheDay")["ActiveCustomers"].iloc[-1]
+
+rows = []
+for lang in ["English", "Spanish"]:
+    is_eng = 1 if lang == "English" else 0
+    lang_hist = calls[calls["Language"] == lang]
+    for day in future_days:
+        dow = day.dayofweek
+        month = day.month
+        is_weekend = 1 if dow in [5, 6] else 0
+        for t in all_slots:
+            minute_of_day = t.hour * 60 + t.minute
+            # Pull the most recent real history for this exact slot to use as lag features
+            slot_hist = lang_hist[(lang_hist["DayOfWeek"] == dow) & (lang_hist["MinuteOfDay"] == minute_of_day)]
+            if len(slot_hist) == 0:
+                same_last_week = same_avg4 = same_avg8 = 0
+            else:
+                same_last_week = slot_hist["CallCount"].iloc[-1]
+                same_avg4 = slot_hist["CallCount"].tail(4).mean()
+                same_avg8 = slot_hist["CallCount"].tail(8).mean()
+            rows.append({
+                "Language": lang, "Date": day, "Time": t,
+                "DayOfWeek": dow, "Month": month, "MinuteOfDay": minute_of_day,
+                "IsWeekend": is_weekend, "ActiveCustomers": latest_active,
+                "SameSlotLastWeek": same_last_week, "SameSlotAvg4Week": same_avg4,
+                "SameSlotAvg8Week": same_avg8, "IsEnglish": is_eng
+            })
+
+forward = pd.DataFrame(rows)
+forward["PredictedCalls"] = model.predict(forward[FEATURES]).clip(min=0).round().astype(int)
+
+forward_out = forward[["Language", "Date", "Time", "PredictedCalls"]].sort_values(["Language", "Date", "Time"])
+forward_out.to_csv("rf_forward_forecast_90day_15min.csv", index=False)
+print(f"Saved: rf_forward_forecast_90day_15min.csv ({len(forward_out)} rows)")
+
+# STEP 4: Build the 12-month DAILY forecast (roll up predicted 15-min slots into daily totals)
+future_days_12mo = pd.date_range(last_day + pd.Timedelta(days=1), periods=365, freq="D")
+daily_rows = []
+for lang in ["English", "Spanish"]:
+    is_eng = 1 if lang == "English" else 0
+    lang_hist = calls[calls["Language"] == lang]
+    for day in future_days_12mo:
+        dow = day.dayofweek
+        month = day.month
+        is_weekend = 1 if dow in [5, 6] else 0
+        day_total = 0
+        for t in all_slots:
+            minute_of_day = t.hour * 60 + t.minute
+            slot_hist = lang_hist[(lang_hist["DayOfWeek"] == dow) & (lang_hist["MinuteOfDay"] == minute_of_day)]
+            if len(slot_hist) == 0:
+                same_last_week = same_avg4 = same_avg8 = 0
+            else:
+                same_last_week = slot_hist["CallCount"].iloc[-1]
+                same_avg4 = slot_hist["CallCount"].tail(4).mean()
+                same_avg8 = slot_hist["CallCount"].tail(8).mean()
+            feat = pd.DataFrame([{
+                "DayOfWeek": dow, "Month": month, "MinuteOfDay": minute_of_day,
+                "IsWeekend": is_weekend, "ActiveCustomers": latest_active,
+                "SameSlotLastWeek": same_last_week, "SameSlotAvg4Week": same_avg4,
+                "SameSlotAvg8Week": same_avg8, "IsEnglish": is_eng
+            }])
+            day_total += max(0, model.predict(feat[FEATURES])[0])
+        daily_rows.append({"Language": lang, "Date": day, "PredictedDailyCalls": round(day_total)})
+    print(f"Finished 12-month daily rollup for {lang}")
+
+daily_forward = pd.DataFrame(daily_rows)
+daily_forward.to_csv("rf_forward_forecast_12month_daily.csv", index=False)
+print(f"Saved: rf_forward_forecast_12month_daily.csv ({len(daily_forward)} rows)")
