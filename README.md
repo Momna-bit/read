@@ -6314,3 +6314,47 @@ FROM (
         DATEADD(MINUTE, (DATEDIFF(MINUTE, 0, CallDate) / 15) * 15, 0)
 ) AS Base
 ORDER BY Language, CallDay, Interval15Min;
+
+
+
+
+import pandas as pd
+import glob
+
+# STEP 1: Load and combine all 8 chunk files
+files = sorted(glob.glob("eng_spa_15min_chunk*.csv"))
+print(f"Found {len(files)} chunk files:")
+for f in files:
+    print(f"  {f}")
+
+dfs = []
+for f in files:
+    chunk = pd.read_csv(f, names=["Language", "CallDay", "Interval15Min", "CallCount"], header=0)
+    dfs.append(chunk)
+
+combined = pd.concat(dfs, ignore_index=True)
+combined["CallDay"] = pd.to_datetime(combined["CallDay"])
+
+# STEP 2: Sanity checks before trusting this data
+print(f"\nTotal rows combined: {len(combined)}")
+print(f"Date range: {combined['CallDay'].min().date()} to {combined['CallDay'].max().date()}")
+print(f"Total days covered: {(combined['CallDay'].max() - combined['CallDay'].min()).days + 1}")
+print(f"\nLanguage breakdown:")
+print(combined["Language"].value_counts())
+
+# Check for any duplicate rows (same language + day + interval appearing twice - would mean
+# overlapping chunk date ranges)
+dupes = combined.duplicated(subset=["Language", "CallDay", "Interval15Min"]).sum()
+print(f"\nDuplicate rows found: {dupes}")
+
+# Check for any gaps - days with zero data at all (missing from every chunk)
+all_days = pd.date_range(combined["CallDay"].min(), combined["CallDay"].max(), freq="D")
+days_with_data = set(combined["CallDay"].dt.date)
+missing_days = [d.date() for d in all_days if d.date() not in days_with_data]
+print(f"\nDays with zero data at all: {len(missing_days)}")
+if missing_days:
+    print(f"First few missing days: {missing_days[:10]}")
+
+# STEP 3: Save the combined file
+combined.to_csv("eng_spa_15min_2year_combined.csv", index=False)
+print(f"\nSaved: eng_spa_15min_2year_combined.csv")
