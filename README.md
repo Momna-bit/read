@@ -6752,3 +6752,51 @@ ax2.grid(alpha=0.3)
 plt.tight_layout()
 plt.savefig("rf_forecast_visual_12month.png", dpi=200)
 print("Saved: rf_forecast_visual_12month.png")
+
+
+
+
+import pandas as pd
+import matplotlib.pyplot as plt
+
+# STEP 1: Manually enter the results from each iteration we already ran and confirmed
+comparison = pd.DataFrame({
+    "Approach": [
+        "Day-of-week\naverage\n(original)",
+        "Random Forest\n(last week only)",
+        "Random Forest\n(4-week average)",
+        "Random Forest\n(4-week + 8-week\ncombined)"
+    ],
+    "English": [29.7, 25.8, 23.3, 22.5],
+    "Spanish": [26.5, 29.4, 28.2, 27.0]
+})
+
+# STEP 2: Build a grouped bar chart showing the whole iteration story
+fig, ax = plt.subplots(figsize=(12, 6))
+x = range(len(comparison))
+width = 0.35
+
+bars1 = ax.bar([i - width/2 for i in x], comparison["English"], width, label="English", color="#005CB9")
+bars2 = ax.bar([i + width/2 for i in x], comparison["Spanish"], width, label="Spanish", color="#00BB86")
+
+# Add value labels on top of each bar
+for bars in [bars1, bars2]:
+    for bar in bars:
+        height = bar.get_height()
+        ax.annotate(f"{height:.1f}%", xy=(bar.get_x() + bar.get_width() / 2, height),
+                    xytext=(0, 3), textcoords="offset points", ha="center", fontsize=9)
+
+ax.set_ylabel("Typical Percent Off From the Real Number")
+ax.set_xlabel("Approach Tried")
+ax.set_title("How Accuracy Improved Across Each Version We Tried", fontsize=13)
+ax.set_xticks(list(x))
+ax.set_xticklabels(comparison["Approach"], fontsize=9)
+ax.set_ylim(0, 35)
+ax.legend(title="Language")
+ax.grid(axis="y", alpha=0.3)
+plt.tight_layout()
+plt.savefig("model_comparison_all_versions.png", dpi=200)
+print("Saved: model_comparison_all_versions.png")
+
+print("\nSummary table:")
+print(comparison.to_string(index=False))
