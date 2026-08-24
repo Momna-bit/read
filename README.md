@@ -6517,3 +6517,7 @@ print(importances.to_string())
 
 test.to_csv("random_forest_test_predictions_v2.csv", index=False)
 print("\nSaved: random_forest_test_predictions_v2.csv")
+
+
+
+calls["SameSlotAvg4Week"] = grp.transform(lambda s: s.shift(1).rolling(4, min_periods=2).mean())
