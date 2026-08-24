@@ -6435,3 +6435,8 @@ print(importances.to_string())
 # STEP 9: Save predictions for later comparison/plotting
 test.to_csv("random_forest_test_predictions.csv", index=False)
 print("\nSaved: random_forest_test_predictions.csv")
+
+
+
+active = pd.read_csv("active_customers_2year.csv", names=["TheDay", "ActiveCustomers"], header=None)
+
