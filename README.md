@@ -6358,3 +6358,80 @@ if missing_days:
 # STEP 3: Save the combined file
 combined.to_csv("eng_spa_15min_2year_combined.csv", index=False)
 print(f"\nSaved: eng_spa_15min_2year_combined.csv")
+
+
+
+import pandas as pd
+import numpy as np
+from sklearn.ensemble import RandomForestRegressor
+from sklearn.metrics import mean_absolute_percentage_error
+
+# STEP 1: Load the 2-year interval data and the daily active customer counts
+calls = pd.read_csv("eng_spa_15min_2year_combined.csv")
+calls["CallDay"] = pd.to_datetime(calls["CallDay"])
+calls["Interval15Min"] = pd.to_datetime(calls["Interval15Min"])
+
+active = pd.read_csv("active_customers_2year.csv")  # from the daily active customer query
+active["TheDay"] = pd.to_datetime(active["TheDay"])
+
+# STEP 2: Build features the model can learn from
+calls["DayOfWeek"] = calls["CallDay"].dt.dayofweek       # 0=Monday ... 6=Sunday
+calls["Month"] = calls["CallDay"].dt.month               # captures seasonality
+calls["Hour"] = calls["Interval15Min"].dt.hour
+calls["Minute"] = calls["Interval15Min"].dt.minute
+calls["MinuteOfDay"] = calls["Hour"] * 60 + calls["Minute"]  # single number for time of day
+calls["IsWeekend"] = calls["DayOfWeek"].isin([5, 6]).astype(int)
+
+# Merge in active customer count for that day - ties call volume to customer base size
+calls = calls.merge(active[["TheDay", "ActiveCustomers"]], left_on="CallDay", right_on="TheDay", how="left")
+calls["ActiveCustomers"] = calls["ActiveCustomers"].fillna(method="ffill")  # fill any gaps
+
+# STEP 3: Build a lag feature - what happened at this same time slot, same day of week, one week ago
+# This gives the model a strong "recent history" signal, similar to what the averaging approach used
+calls = calls.sort_values(["Language", "DayOfWeek", "MinuteOfDay", "CallDay"])
+calls["SameSlotLastWeek"] = calls.groupby(["Language", "DayOfWeek", "MinuteOfDay"])["CallCount"].shift(1)
+
+# Drop rows where we don't have a lag value yet (the very first week of history)
+calls = calls.dropna(subset=["SameSlotLastWeek"])
+
+# STEP 4: Encode Language as a number for the model
+calls["IsEnglish"] = (calls["Language"] == "English").astype(int)
+
+FEATURES = ["DayOfWeek", "Month", "MinuteOfDay", "IsWeekend", "ActiveCustomers", "SameSlotLastWeek", "IsEnglish"]
+TARGET = "CallCount"
+
+# STEP 5: Time-based train/test split - last 90 days as test, same as our previous backtest
+last_day = calls["CallDay"].max()
+cutoff = last_day - pd.Timedelta(days=90)
+
+train = calls[calls["CallDay"] < cutoff]
+test = calls[calls["CallDay"] >= cutoff]
+
+print(f"Training rows: {len(train)}, Testing rows: {len(test)}")
+print(f"Train period: {train['CallDay'].min().date()} to {train['CallDay'].max().date()}")
+print(f"Test period: {test['CallDay'].min().date()} to {test['CallDay'].max().date()}")
+
+# STEP 6: Train the Random Forest model
+model = RandomForestRegressor(n_estimators=200, max_depth=15, random_state=42, n_jobs=-1)
+model.fit(train[FEATURES], train[TARGET])
+
+# STEP 7: Predict on the test set and measure accuracy
+test = test.copy()
+test["Predicted"] = model.predict(test[FEATURES])
+test["Predicted"] = test["Predicted"].clip(lower=0)  # calls can't be negative
+
+# Overall accuracy, split by language (same metric as before: average % off from actual)
+for lang in ["English", "Spanish"]:
+    sub = test[test["Language"] == lang]
+    valid = sub[sub[TARGET] > 0]  # avoid divide-by-zero on true zero-call windows
+    mape = (abs(valid[TARGET] - valid["Predicted"]) / valid[TARGET]).mean() * 100
+    print(f"{lang} — Random Forest average error: {mape:.1f}%")
+
+# STEP 8: Show which features the model relied on most - useful for the walkthrough with Jonathan
+importances = pd.Series(model.feature_importances_, index=FEATURES).sort_values(ascending=False)
+print("\nWhich factors mattered most to the model:")
+print(importances.to_string())
+
+# STEP 9: Save predictions for later comparison/plotting
+test.to_csv("random_forest_test_predictions.csv", index=False)
+print("\nSaved: random_forest_test_predictions.csv")
