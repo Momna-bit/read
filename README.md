@@ -5877,3 +5877,65 @@ FROM (
 ORDER BY Language, CallDay, Interval15Min;
 
 
+
+
+-- STEP 2b: 15-minute interval call data, Chunk 2 of 8
+SELECT
+    Language,
+    CallDay,
+    Interval15Min,
+    CallCount
+FROM (
+    SELECT
+        CASE
+            WHEN Queue IN (
+                'BillingResidentialENG - South', 'DNPResidentialENG - South', 'HEB Hotline South - ENG',
+                'Kroger Hotline South - ENG', 'Sam''s Club Hotline South-ENG',
+                'OTC_Outbound_FCC_Consent_No', 'OTC_Outbound_FCC_Consent_Yes_Active',
+                'ResiAdvHandlingENG', 'ResidentialAdv_EnrollmentENG'
+            ) THEN 'English'
+            WHEN Queue IN (
+                'BillingResidentialSPA - South', 'DNPResidentialSPA - South', 'HEB Hotline South - SPA',
+                'Kroger Hotline South - SPA', 'Sam''s Club Hotline South-SPA',
+                'SPA_OTC_Outbound_FCC_Consent_No', 'SPA_OTC_Outbound_FCC_Consent_Yes_Active',
+                'ResiAdvHandlingSPA', 'ResidentialAdv_EnrollmentSPA'
+            ) THEN 'Spanish'
+        END AS Language,
+        CAST(CallDate AS DATE) AS CallDay,
+        DATEADD(MINUTE, (DATEDIFF(MINUTE, 0, CallDate) / 15) * 15, 0) AS Interval15Min,
+        COUNT(*) AS CallCount
+    FROM dbo.IVR
+    WHERE CallType IN ('Inbound', 'Transfer')
+      AND CallDate >= '2024-11-24'
+      AND CallDate < '2025-02-23'
+      AND Queue IN (
+            'BillingResidentialENG - South', 'BillingResidentialSPA - South',
+            'DNPResidentialENG - South', 'DNPResidentialSPA - South',
+            'HEB Hotline South - ENG', 'HEB Hotline South - SPA',
+            'Kroger Hotline South - ENG', 'Kroger Hotline South - SPA',
+            'Sam''s Club Hotline South-ENG', 'Sam''s Club Hotline South-SPA',
+            'OTC_Outbound_FCC_Consent_No', 'SPA_OTC_Outbound_FCC_Consent_No',
+            'OTC_Outbound_FCC_Consent_Yes_Active', 'SPA_OTC_Outbound_FCC_Consent_Yes_Active',
+            'ResiAdvHandlingENG', 'ResiAdvHandlingSPA',
+            'ResidentialAdv_EnrollmentENG', 'ResidentialAdv_EnrollmentSPA'
+        )
+    GROUP BY
+        CASE
+            WHEN Queue IN (
+                'BillingResidentialENG - South', 'DNPResidentialENG - South', 'HEB Hotline South - ENG',
+                'Kroger Hotline South - ENG', 'Sam''s Club Hotline South-ENG',
+                'OTC_Outbound_FCC_Consent_No', 'OTC_Outbound_FCC_Consent_Yes_Active',
+                'ResiAdvHandlingENG', 'ResidentialAdv_EnrollmentENG'
+            ) THEN 'English'
+            WHEN Queue IN (
+                'BillingResidentialSPA - South', 'DNPResidentialSPA - South', 'HEB Hotline South - SPA',
+                'Kroger Hotline South - SPA', 'Sam''s Club Hotline South-SPA',
+                'SPA_OTC_Outbound_FCC_Consent_No', 'SPA_OTC_Outbound_FCC_Consent_Yes_Active',
+                'ResiAdvHandlingSPA', 'ResidentialAdv_EnrollmentSPA'
+            ) THEN 'Spanish'
+        END,
+        CAST(CallDate AS DATE),
+        DATEADD(MINUTE, (DATEDIFF(MINUTE, 0, CallDate) / 15) * 15, 0)
+) AS Base
+ORDER BY Language, CallDay, Interval15Min;
+
