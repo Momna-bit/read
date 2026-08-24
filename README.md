@@ -5788,3 +5788,19 @@ plt.tight_layout()
 plt.savefig("actual_vs_forecast_last_week.png", dpi=200)
 print("Saved: actual_vs_forecast_last_week.png")
 
+
+
+-- STEP 1: Daily count of active customers, last 2 years
+-- "Active" = enrolled (FlowStart on or before that day) and not yet ended (FlowEnd is null or after that day)
+SELECT
+    CAST(cal.CalendarDate AS DATE) AS TheDay,
+    COUNT(DISTINCT cm.cust_id) AS ActiveCustomers
+FROM vw_calendarWH cal
+LEFT JOIN iSigma_Customer_Master cm
+    ON cm.FlowStart <= cal.CalendarDate
+    AND (cm.FlowEnd IS NULL OR cm.FlowEnd > cal.CalendarDate)
+    AND cm.Market = 'Texas'
+WHERE cal.CalendarDate >= DATEADD(YEAR, -2, CAST(GETDATE() AS DATE))
+    AND cal.CalendarDate <= CAST(GETDATE() AS DATE)
+GROUP BY CAST(cal.CalendarDate AS DATE)
+ORDER BY TheDay;
