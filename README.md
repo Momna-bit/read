@@ -5804,3 +5804,8 @@ WHERE cal.CalendarDate >= DATEADD(YEAR, -2, CAST(GETDATE() AS DATE))
     AND cal.CalendarDate <= CAST(GETDATE() AS DATE)
 GROUP BY CAST(cal.CalendarDate AS DATE)
 ORDER BY TheDay;
+
+
+
+-- STEP: Check the real column names in vw_calendarWH
+SELECT TOP 5 * FROM vw_calendarWH;
