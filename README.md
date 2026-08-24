@@ -6650,3 +6650,55 @@ for lang in ["English", "Spanish"]:
 daily_forward = pd.DataFrame(daily_rows)
 daily_forward.to_csv("rf_forward_forecast_12month_daily.csv", index=False)
 print(f"Saved: rf_forward_forecast_12month_daily.csv ({len(daily_forward)} rows)")
+
+
+
+# STEP 4: Build the 12-month DAILY forecast (batched for speed - predict everything at once)
+future_days_12mo = pd.date_range(last_day + pd.Timedelta(days=1), periods=365, freq="D")
+
+daily_rows = []
+for lang in ["English", "Spanish"]:
+    is_eng = 1 if lang == "English" else 0
+    lang_hist = calls[calls["Language"] == lang]
+
+    # Build a lookup of the most recent lag values for every (DayOfWeek, MinuteOfDay) combo once,
+    # instead of re-filtering the history inside a nested loop
+    lookup = lang_hist.groupby(["DayOfWeek", "MinuteOfDay"])["CallCount"].agg(
+        SameSlotLastWeek=lambda s: s.iloc[-1],
+        SameSlotAvg4Week=lambda s: s.tail(4).mean(),
+        SameSlotAvg8Week=lambda s: s.tail(8).mean()
+    ).reset_index()
+
+    # Build every (day, time slot) row for this language in one shot
+    batch_rows = []
+    for day in future_days_12mo:
+        dow = day.dayofweek
+        month = day.month
+        is_weekend = 1 if dow in [5, 6] else 0
+        for t in all_slots:
+            minute_of_day = t.hour * 60 + t.minute
+            batch_rows.append({
+                "Date": day, "DayOfWeek": dow, "Month": month, "MinuteOfDay": minute_of_day,
+                "IsWeekend": is_weekend, "ActiveCustomers": latest_active, "IsEnglish": is_eng
+            })
+    batch_df = pd.DataFrame(batch_rows)
+
+    # Merge in the lag features from the lookup table (fast, vectorized - no loop needed)
+    batch_df = batch_df.merge(lookup, on=["DayOfWeek", "MinuteOfDay"], how="left")
+    batch_df[["SameSlotLastWeek", "SameSlotAvg4Week", "SameSlotAvg8Week"]] = \
+        batch_df[["SameSlotLastWeek", "SameSlotAvg4Week", "SameSlotAvg8Week"]].fillna(0)
+
+    # ONE prediction call for all ~35,000 rows of this language at once
+    batch_df["PredictedCalls"] = model.predict(batch_df[FEATURES]).clip(min=0)
+
+    # Roll up to daily totals
+    daily_totals = batch_df.groupby("Date")["PredictedCalls"].sum().round().astype(int).reset_index()
+    daily_totals["Language"] = lang
+    daily_rows.append(daily_totals[["Language", "Date", "PredictedCalls"]])
+    print(f"Finished 12-month daily rollup for {lang}")
+
+daily_forward = pd.concat(daily_rows, ignore_index=True)
+daily_forward = daily_forward.rename(columns={"PredictedCalls": "PredictedDailyCalls"})
+daily_forward.to_csv("rf_forward_forecast_12month_daily.csv", index=False)
+print(f"Saved: rf_forward_forecast_12month_daily.csv ({len(daily_forward)} rows)")
+
