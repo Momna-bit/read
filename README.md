@@ -6826,3 +6826,21 @@ files = [ws.cell(row=r, column=1).value for r in range(2, ws.max_row + 1)]
 print('Contains Excel Report Guide.pdf:', any('Excel Report Guide' in str(f) for f in files))
 "
 
+
+
+import pandas as pd
+
+df = pd.read_csv("rf_forward_forecast_90day_15min.csv")
+df["Date"] = pd.to_datetime(df["Date"])
+
+# Find the single highest predicted moment for English in the first 7 days
+first_week = df[df["Date"] < df["Date"].min() + pd.Timedelta(days=7)]
+english = first_week[first_week["Language"] == "English"]
+peak = english.loc[english["PredictedCalls"].idxmax()]
+
+print(f"Biggest spike: {peak['Date'].strftime('%A, %B %d')} at {peak['Time']}")
+print(f"Predicted calls at that moment: {peak['PredictedCalls']}")
+
+
+
+py -c "import pandas as pd; df = pd.read_csv('rf_forward_forecast_90day_15min.csv'); df['Date'] = pd.to_datetime(df['Date']); first_week = df[df['Date'] < df['Date'].min() + pd.Timedelta(days=7)]; english = first_week[first_week['Language'] == 'English']; peak = english.loc[english['PredictedCalls'].idxmax()]; print(f'Biggest spike: {peak[\"Date\"].strftime(\"%A, %B %d\")} at {peak[\"Time\"]}'); print(f'Predicted calls: {peak[\"PredictedCalls\"]}')"
