@@ -6844,3 +6844,41 @@ print(f"Predicted calls at that moment: {peak['PredictedCalls']}")
 
 
 py -c "import pandas as pd; df = pd.read_csv('rf_forward_forecast_90day_15min.csv'); df['Date'] = pd.to_datetime(df['Date']); first_week = df[df['Date'] < df['Date'].min() + pd.Timedelta(days=7)]; english = first_week[first_week['Language'] == 'English']; peak = english.loc[english['PredictedCalls'].idxmax()]; print(f'Biggest spike: {peak[\"Date\"].strftime(\"%A, %B %d\")} at {peak[\"Time\"]}'); print(f'Predicted calls: {peak[\"PredictedCalls\"]}')"
+
+
+
+
+import pandas as pd
+import matplotlib.pyplot as plt
+
+# STEP 1: Load the Random Forest model's real 90-day hidden test results
+# (this file already has both the real Actual numbers and the RF model's Predicted numbers)
+df = pd.read_csv("random_forest_test_predictions_v2.csv")
+df["CallDay"] = pd.to_datetime(df["CallDay"])
+
+# STEP 2: Build a real timestamp so we can plot in time order
+df["Timestamp"] = pd.to_datetime(df["CallDay"].astype(str) + " " + df["MinuteOfDay"].astype(str), errors="coerce")
+# MinuteOfDay is stored as minutes-since-midnight, so convert it properly
+df["Timestamp"] = df["CallDay"] + pd.to_timedelta(df["MinuteOfDay"], unit="m")
+df = df.sort_values("Timestamp")
+
+# STEP 3: Pick the most recent real week to plot clearly
+last_day = df["CallDay"].max()
+one_week = df[df["CallDay"] >= last_day - pd.Timedelta(days=6)]
+
+# STEP 4: Plot Actual vs Predicted, one chart per language
+fig, axes = plt.subplots(2, 1, figsize=(14, 10), sharex=True)
+
+for ax, lang in zip(axes, ["English", "Spanish"]):
+    sub = one_week[one_week["Language"] == lang]
+    ax.plot(sub["Timestamp"], sub["CallCount"], label="What Actually Happened", color="#004061", linewidth=1.3)
+    ax.plot(sub["Timestamp"], sub["Predicted"], label="What the Smarter Program Predicted", color="#F4A600", linewidth=1.3, linestyle="--")
+    ax.set_title(f"{lang} — Real Calls vs. What the Random Forest Predicted (Last 7 Days)")
+    ax.set_ylabel("Number of Calls")
+    ax.legend()
+    ax.grid(alpha=0.3)
+
+axes[-1].set_xlabel("Day and Time")
+plt.tight_layout()
+plt.savefig("rf_actual_vs_forecast_last_week.png", dpi=200)
+print("Saved: rf_actual_vs_forecast_last_week.png")
