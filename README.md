@@ -123,7 +123,7 @@ def train(pull, outdir):
             m = fit(g[tr], ytr)
             p = m.predict_proba(g.loc[te, FEATS])[:, 1]
             auc = roc_auc_score(yte, p)
-            cuts = (np.quantile(p, 0.96), np.quantile(p, 0.90), np.quantile(p, 0.30))
+            cuts = (np.quantile(p, 0.96), np.quantile(p, 0.90), np.quantile(p, 0.70))
             models[(gname, tname)] = m; cutsd[(gname, tname)] = cuts
             quality.append({"Group": gname, "Question": TARGETS[tname], "Test bills": len(yte),
                 "Share that happen": yte.mean(), "Ranking score (AUC)": auc,
