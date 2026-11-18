@@ -16,7 +16,15 @@ d = pd.read_csv(pull, header=0 if has_header else None, encoding="utf-8-sig",
 if not has_header:
     d.columns = NAMES[:d.shape[1]]
 d["DueDate"] = pd.to_datetime(d["DueDate"])
-c = pd.read_csv(cleanf, encoding="utf-8-sig", dtype={"Bill_No": str, "cust_id": str})
+CNAMES = ["Bill_No", "cust_id", "NetCharge", "Usage", "CleanCharge", "CreditsAmt", "DepositAmt", "ETPAmt",
+          "LateFeesAmt", "WriteOffAmt", "AdjustAmt", "TaxPassAmt", "OtherAmt"]
+cfirst = open(cleanf, "r", encoding="utf-8-sig", errors="replace").readline()
+c_header = cfirst.strip().lower().startswith("bill_no")
+c = pd.read_csv(cleanf, header=0 if c_header else None, encoding="utf-8-sig", dtype=str, low_memory=False)
+if not c_header:
+    c.columns = CNAMES[:c.shape[1]]
+for k in CNAMES[2:]:
+    c[k] = pd.to_numeric(c[k], errors="coerce")
 d["Bill_No"] = d["Bill_No"].astype(str)
 d = d[d.BillAmount > 0].merge(c.drop(columns=["cust_id", "NetCharge", "Usage"], errors="ignore"), on="Bill_No", how="inner")
 print("bills matched to the clean price file:", f"{len(d):,}")
