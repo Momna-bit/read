@@ -1,23 +1,6 @@
-"""
-Rank the real Summer At Risk list with the bill-risk score. Runs only on your laptop.
-
-Put next to phase2_models.pkl and Bill_Risk_Phase2_Local.py:
-    bill_risk_sar_pull.csv     (from Bill_Risk_Step22_SAR_List_Pull.sql, with header row)
-
-Run:   py Bill_Risk_SAR_Ranking.py bill_risk_sar_pull.csv
-
-Writes ONE small file of totals (no customer IDs, no bill numbers):
-    Bill_Risk_SAR_Ranking_Totals.xlsx
-Only that file is safe to share.
-
-In plain words:
- - The score is set at the moment the bill is issued.
- - Every bill on the Summer At Risk list gets a score and a band
-   (Very high = riskiest 4% of all bills, High = next 6%, Medium = next 20%, Low = the rest).
- - We show where the list sits: how many are Very high / High / Medium / Low.
- - We also show how much of each band is still overdue today. It is early, so treat it as a
-   first look, not a final result.
-"""
+# Rank the real Summer At Risk list with the bill-risk score. Runs only on your laptop.
+# Run:  py Bill_Risk_SAR_Ranking.py bill_risk_sar_pull.csv
+# Keep this file, phase2_models.pkl and Bill_Risk_Phase2_Local.py in the same folder.
 import sys, os, pickle
 import numpy as np, pandas as pd
 import Bill_Risk_Phase2_Local as m
