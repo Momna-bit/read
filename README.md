@@ -1,15 +1,21 @@
 # Does the cleaner price help? Runs only on your laptop. Totals only are written.
-# Run:  py Bill_Risk_Clean_Price_Test.py PHASE2_PULL.csv bill_risk_clean_price.csv
-# Keep it in the same folder as Bill_Risk_Phase2_Local.py. The Phase 2 pull must have the header row and a Bill_No column.
+# Run:  py Bill_Risk_Clean_Price_Check.py bill_risk_vs_summer_pull.csv bill_risk_clean_price.csv
+# Keep it in the same folder as Bill_Risk_Phase2_Local.py. Uses the 2026 pull (it has Bill_No).
 import sys
 import numpy as np, pandas as pd
 from sklearn.metrics import roc_auc_score
 import Bill_Risk_Phase2_Local as m
 
 pull, cleanf = sys.argv[1], sys.argv[2]
-d = m.read_any(pull, m.COLS22 + m.OUT6)
-if "Bill_No" not in d.columns:
-    sys.exit("The Phase 2 pull file has no Bill_No column. Use the 2026 pull instead (the one with Bill_No).")
+NAMES = m.COLS22 + m.OUT6 + ["Bill_No", "cust_id", "Utility", "TotalDueApprox", "PriorNotices",
+                             "PerDayNow", "BaselinePerDay", "PriorBillCount"]
+first = open(pull, "r", encoding="utf-8-sig", errors="replace").readline()
+has_header = first.strip().lower().startswith("duedate")
+d = pd.read_csv(pull, header=0 if has_header else None, encoding="utf-8-sig",
+                dtype={"Bill_No": str, "cust_id": str}, low_memory=False)
+if not has_header:
+    d.columns = NAMES[:d.shape[1]]
+d["DueDate"] = pd.to_datetime(d["DueDate"])
 c = pd.read_csv(cleanf, encoding="utf-8-sig", dtype={"Bill_No": str, "cust_id": str})
 d["Bill_No"] = d["Bill_No"].astype(str)
 d = d[d.BillAmount > 0].merge(c.drop(columns=["cust_id", "NetCharge", "Usage"], errors="ignore"), on="Bill_No", how="inner")
@@ -28,7 +34,8 @@ clean["EffectiveRate"] = clean.CleanCharge / clean.Usage
 clean = m.prep(clean, top, maps)
 T = m.make_targets(base)
 y = T["Unpaid_60_Days"]
-tr = base.DueDate < m.TRAIN_END; te = ~tr
+SPLIT = pd.Timestamp('2026-05-01')   # train on Jan-Apr 2026 bills, test on May onward
+tr = base.DueDate < SPLIT; te = ~tr
 print(f"train {tr.sum():,}  test {te.sum():,}  unpaid at 60 days (test): {y[te].mean():.3f}")
 
 def run(frame, label, mask=None):
