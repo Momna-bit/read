@@ -46,20 +46,36 @@ SPLIT = pd.Timestamp('2026-05-01')   # train on Jan-Apr 2026 bills, test on May 
 tr = base.DueDate < SPLIT; te = ~tr
 print(f"train {tr.sum():,}  test {te.sum():,}  unpaid at 60 days (test): {y[te].mean():.3f}")
 
-def run(frame, label, mask=None):
+from sklearn.ensemble import HistGradientBoostingClassifier
+def fit2(X, y, feats):
+    cat_idx = [feats.index(k + "_c") for k in m.CATS]
+    mod = HistGradientBoostingClassifier(max_iter=300, learning_rate=0.08, max_leaf_nodes=48,
+        min_samples_leaf=200, l2_regularization=1.0, categorical_features=cat_idx,
+        early_stopping=True, validation_fraction=0.1, random_state=7)
+    return mod.fit(X[feats], y)
+
+def run(frame, label, mask=None, feats=None):
+    feats = feats or m.FEATS
     mk = tr if mask is None else tr & mask
     mt = te if mask is None else te & mask
-    mod = m.fit(frame[mk], y[mk])
-    p = mod.predict_proba(frame[mt][m.FEATS])[:, 1]
+    mod = fit2(frame[mk], y[mk], feats)
+    p = mod.predict_proba(frame[mt][feats])[:, 1]
     yy = y[mt]
     return {"Model": label, "Test bills": int(mt.sum()), "Unpaid rate": yy.mean(),
             "AUC": roc_auc_score(yy, p), "Top 10% catches": m.capture(yy.reset_index(drop=True), p, 0.10),
             "Top 4% catches": m.capture(yy.reset_index(drop=True), p, 0.04)}
 
+PIECES = ["CreditsAmt", "DepositAmt", "ETPAmt", "AdjustAmt", "OtherAmt"]
+for k in PIECES + ["LateFeesAmt"]:
+    clean[k] = d[k].values
+
 rows = []
 for name, mask in [("All regular bills", None), ("First bills (tenure under 60 days)", base.TenureDays < 60)]:
-    for label, fr in [("Current price", base), ("Cleaner price", clean)]:
-        r = run(fr, label, mask); r = {"Group": name, **r}; rows.append(r)
+    for label, fr, fs in [("Current price", base, None),
+                          ("Cleaner price", clean, None),
+                          ("Cleaner price + the removed pieces as their own columns", clean, m.FEATS + PIECES),
+                          ("  same, plus late and notice fees (check)", clean, m.FEATS + PIECES + ["LateFeesAmt"])]:
+        r = run(fr, label, mask, fs); r = {"Group": name, **r}; rows.append(r)
 res = pd.DataFrame(rows)
 pd.set_option("display.width", 200)
 print("\nDoes the cleaner price help? (higher is better)")
@@ -74,5 +90,5 @@ mix = pd.DataFrame({
 print("\nWhat is on the bill, by family:")
 print(mix.round(3).to_string())
 with pd.ExcelWriter("Bill_Risk_Clean_Price_Totals.xlsx") as w:
-    res.to_excel(w, "Model comparison", index=False); mix.to_excel(w, "Bill makeup")
+    res.to_excel(w, sheet_name="Model comparison", index=False); mix.to_excel(w, sheet_name="Bill makeup")
 print("\nWrote Bill_Risk_Clean_Price_Totals.xlsx (totals only)")
