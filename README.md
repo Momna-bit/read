@@ -9,7 +9,7 @@ import Bill_Risk_Phase2_Local as m
 pull, cleanf = sys.argv[1], sys.argv[2]
 d = m.read_any(pull, m.COLS22 + m.OUT6)
 if "Bill_No" not in d.columns:
-    sys.exit("The Phase 2 pull file has no Bill_No column. Tell Claude and we will use the 2026 pull instead.")
+    sys.exit("The Phase 2 pull file has no Bill_No column. Use the 2026 pull instead (the one with Bill_No).")
 c = pd.read_csv(cleanf, encoding="utf-8-sig", dtype={"Bill_No": str, "cust_id": str})
 d["Bill_No"] = d["Bill_No"].astype(str)
 d = d[d.BillAmount > 0].merge(c.drop(columns=["cust_id", "NetCharge", "Usage"], errors="ignore"), on="Bill_No", how="inner")
