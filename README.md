@@ -1,3 +1,8 @@
+
+py check_bill_rules_WITH_EXCEL.py --easy "Bills to check"
+
+
+
 """
 Bill PDF Audit Tool - Phase 1 Rule Checker (Full: Sections 1-9)
 =================================================================
