@@ -1,9 +1,26 @@
 /* ============================================================
-   BILL RISK, STEP 29: contract end date and "why they left" for the same bills as the model pull
-   Uses the exact same bill sample as Step 26, so the two files line up on Bill_No.
-   Export WITH the header row. Save as: bill_risk_contract_leave_pull.csv
-   Keep it on your laptop. It has bill numbers and customer IDs.
+   BILL RISK, STEP 30: the real contract term dates
+   The dates in Step 29 turned out to be the billing period, not the contract term.
+   Here we take the term from the contract master instead.
+   Run PART A first and send a screenshot. Then run PART B and export WITH the header row
+   as: bill_risk_contract_leave_pull.csv   (replaces the Step 29 file)
+   If PART A says a column name is invalid, run:  SELECT TOP 5 * FROM iSigma_Contract_Master;
+   and send a screenshot of the column names.
    ============================================================ */
+
+-- PART A1: what the contract end dates look like (counts only)
+SELECT YEAR(END_DATE) AS EndYear, COUNT(*) AS Contracts
+FROM iSigma_Contract_Master
+GROUP BY YEAR(END_DATE)
+ORDER BY EndYear;
+
+-- PART A2: how long the contracts are, in months (counts only)
+SELECT TOP 30 DATEDIFF(month, EFFECTIVE_DATE, END_DATE) AS TermMonths, COUNT(*) AS Contracts
+FROM iSigma_Contract_Master
+GROUP BY DATEDIFF(month, EFFECTIVE_DATE, END_DATE)
+ORDER BY COUNT(*) DESC;
+
+-- PART B: the pull
 WITH sample AS (
     SELECT b.Bill_No, b.cust_id, b.Instance, b.Bill_Date, b.Due_Date
     FROM iSigma_Bill_Master b
@@ -14,17 +31,20 @@ WITH sample AS (
       AND b.Due_Date >= DATEADD(month, -24,  CAST(GETDATE() AS date))
       AND ABS(CHECKSUM(b.Bill_No)) % 10 = 0
 ),
-contract AS (
-    -- the contract dates printed on that bill
-    SELECT d.BILL_NO,
-           MIN(CAST(d.CO_START_DATE AS date)) AS ContractStart,
-           MAX(CAST(d.CO_END_DATE   AS date)) AS ContractEnd
+bill_contract AS (
+    SELECT DISTINCT d.BILL_NO, d.CONTRACT_ID
     FROM iSigma_Bill_Contract_Details d
     WHERE d.BILL_NO IN (SELECT Bill_No FROM sample)
-    GROUP BY d.BILL_NO
+),
+term AS (
+    SELECT bc.BILL_NO,
+           MIN(cm.EFFECTIVE_DATE) AS TermStart,
+           MAX(cm.END_DATE)       AS TermEnd
+    FROM bill_contract bc
+    JOIN iSigma_Contract_Master cm ON cm.CONTRACT_ID = bc.CONTRACT_ID
+    GROUP BY bc.BILL_NO
 ),
 leave_msgs AS (
-    -- requests sent to the utility in the 120 days after the due date, with the reason written on them
     SELECT s.Bill_No,
            MIN(CASE WHEN e.REQ_REASON LIKE '%moved%'  THEN CAST(e.Created_date AS date) END) AS MovedDate,
            MIN(CASE WHEN e.REQ_REASON LIKE '%swit%'   THEN CAST(e.Created_date AS date) END) AS SwitchDate,
@@ -39,9 +59,10 @@ leave_msgs AS (
     GROUP BY s.Bill_No
 )
 SELECT s.Bill_No, s.cust_id, s.Bill_Date, s.Due_Date,
-       c.ContractStart, c.ContractEnd,
-       DATEDIFF(day, s.Bill_Date, c.ContractEnd) AS DaysToContractEnd,
+       t.TermStart, t.TermEnd,
+       DATEDIFF(day, s.Bill_Date, t.TermEnd) AS DaysToTermEnd,
+       DATEDIFF(month, t.TermStart, t.TermEnd) AS TermMonths,
        l.MovedDate, l.SwitchDate, l.DisconnectRequestDate, l.DroppedDate
 FROM sample s
-LEFT JOIN contract   c ON c.BILL_NO = s.Bill_No
+LEFT JOIN term       t ON t.BILL_NO = s.Bill_No
 LEFT JOIN leave_msgs l ON l.Bill_No = s.Bill_No;
