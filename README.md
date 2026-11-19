@@ -1,5 +1,8 @@
-# Leaving test: does knowing when the contract ends help predict who leaves?
-# Also splits leavers into "non-payment", "voluntary" and "moved", and checks the leave reasons are found.
+# Leaving test, in two parts:
+# Part 1: does knowing when the contract ends help predict who leaves? Also splits leavers into
+#         "non-payment", "voluntary" and "moved", and checks the leave reasons are found.
+# Part 2: builds three separate predictions (leaves for any reason, leaves because of non-payment,
+#         leaves by choice) with customers who moved left out, and checks if the lists overlap.
 # Run:  py Bill_Risk_Leaving_Test.py bill_risk_phase2_pull_v2.csv bill_risk_clean_price.csv bill_risk_contract_leave_pull.csv
 # Keep it in the same folder as Bill_Risk_Phase2_Local.py. Only totals are written.
 import sys
@@ -137,3 +140,40 @@ with pd.ExcelWriter("Bill_Risk_Leaving_Totals.xlsx", engine="openpyxl") as xw:
     by_end.to_excel(xw, sheet_name="By contract end", index=False)
     res.to_excel(xw, sheet_name="Does it help", index=False)
 print("\nWrote Bill_Risk_Leaving_Totals.xlsx (totals only)")
+print("\n===== PART 2: three separate predictions =====")
+
+# who left, and why (same simple rule as before: owing / disconnected / disconnect request = non-payment)
+lv = y == 1
+nonpay = (lv & ((unp == 1) | (dis == 1) | dreq)).astype(int)
+vol = (lv & ~nonpay.astype(bool) & ~moved).astype(int)
+anyleave = (lv & ~moved).astype(int)
+keep = ~moved                       # customers who moved are left out of all three questions
+FE = m.FEATS + PIECES + CONTRACT
+trk = (tr.values & keep.values); tek = (te.values & keep.values)
+Q = {"Leaves for any reason (moves left out)": anyleave,
+     "Leaves because of non-payment": nonpay,
+     "Leaves by choice (voluntary)": vol}
+rows = []; scores = {}
+for nice, yy in Q.items():
+    mod = fit2(new[trk], yy[trk], FE)
+    p = mod.predict_proba(new[tek][FE])[:, 1]
+    yt = yy[tek].reset_index(drop=True)
+    scores[nice] = pd.Series(p)
+    rows.append({"Question": nice, "Test bills": int(tek.sum()), "Happens": yt.mean(), "AUC": roc_auc_score(yt, p),
+                 "Top 10% catches": m.capture(yt, p, 0.10), "Top 4% catches": m.capture(yt, p, 0.04)})
+res = pd.DataFrame(rows)
+
+# do the two risk lists overlap? (top 10% by each score)
+a = scores["Leaves because of non-payment"]; b = scores["Leaves by choice (voluntary)"]
+ta = a >= a.quantile(0.90); tb = b >= b.quantile(0.90)
+overlap = pd.DataFrame({"Measure": ["Share of the top 10% non-payment list that is also in the top 10% voluntary list",
+                                    "Correlation between the two scores"],
+                        "Value": [(ta & tb).sum() / ta.sum(), np.corrcoef(a, b)[0, 1]]})
+
+pd.set_option("display.width", 220, "display.max_columns", 20)
+print("\nThree questions, same inputs (higher is better):"); print(res.round(3).to_string(index=False))
+print("\nDo the two lists pick the same customers?"); print(overlap.round(3).to_string(index=False))
+with pd.ExcelWriter("Bill_Risk_Leaving_Split_Totals.xlsx", engine="openpyxl") as xw:
+    res.to_excel(xw, sheet_name="Three questions", index=False)
+    overlap.to_excel(xw, sheet_name="Overlap", index=False)
+print("\nWrote Bill_Risk_Leaving_Split_Totals.xlsx (totals only)")
