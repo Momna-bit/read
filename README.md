@@ -228,3 +228,31 @@ with pd.ExcelWriter("Bill_Risk_Leaving_Debt_Logic_Totals.xlsx", engine="openpyxl
     cats.to_excel(xw, sheet_name="Type of leaver", index=False)
     res2.to_excel(xw, sheet_name="Two questions", index=False)
 print("\nWrote Bill_Risk_Leaving_Debt_Logic_Totals.xlsx (totals only)")
+
+# ============================================================================================
+# PART 4: the group a bill-shock credit is aimed at: customers who see the bill and leave before it is due
+# ============================================================================================
+print("\n===== PART 4: who leaves before the bill is due =====")
+lbd = left_before_due.astype(int)
+lbd_owe = (left_before_due & owing).astype(int)
+Q4 = {"Leaves before the bill is due": lbd, "Leaves before the bill is due, still owing": lbd_owe}
+rows4 = []
+for nice, yy in Q4.items():
+    mod = fit2(new[trk], yy[trk], FE)
+    p = mod.predict_proba(new[tek][FE])[:, 1]
+    yt = yy[tek].reset_index(drop=True)
+    rows4.append({"Question": nice, "Test bills": int(tek.sum()), "Happens": yt.mean(), "AUC": roc_auc_score(yt, p),
+                  "Top 10% catches": m.capture(yt, p, 0.10), "Top 4% catches": m.capture(yt, p, 0.04)})
+res4 = pd.DataFrame(rows4)
+# how big is the bill for these customers, compared with everyone else?
+amt = d.BillAmount.reset_index(drop=True)
+size = pd.DataFrame({"Group": ["Left before due", "Left before due, still owing", "All other bills"],
+    "Bills": [int(left_before_due.sum()), int((left_before_due & owing).sum()), int((~left_before_due).sum())],
+    "Average bill": [amt[left_before_due].mean(), amt[left_before_due & owing].mean(), amt[~left_before_due].mean()],
+    "Median bill": [amt[left_before_due].median(), amt[left_before_due & owing].median(), amt[~left_before_due].median()]})
+print(res4.round(3).to_string(index=False))
+print("\nBill size for these groups:"); print(size.round(1).to_string(index=False))
+with pd.ExcelWriter("Bill_Risk_Leaving_Before_Due_Totals.xlsx", engine="openpyxl") as xw:
+    res4.to_excel(xw, sheet_name="Before due", index=False)
+    size.to_excel(xw, sheet_name="Bill size", index=False)
+print("\nWrote Bill_Risk_Leaving_Before_Due_Totals.xlsx (totals only)")
