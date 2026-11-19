@@ -1,4 +1,3 @@
-
 # Leaving test: does knowing when the contract ends help predict who leaves?
 # Also splits leavers into "non-payment", "voluntary" and "moved", and checks the leave reasons are found.
 # Run:  py Bill_Risk_Leaving_Test.py bill_risk_phase2_pull_v2.csv bill_risk_clean_price.csv bill_risk_contract_leave_pull.csv
@@ -33,7 +32,17 @@ for k in CN[2:]:
 c = c[["Bill_No", "CleanCharge", "CreditsAmt", "DepositAmt", "ETPAmt", "LateFeesAmt", "AdjustAmt", "OtherAmt"]]
 d["Bill_No"] = d["Bill_No"].astype(str)
 d = d[d.BillAmount > 0].merge(c, on="Bill_No", how="inner")
-k = pd.read_csv(termf, encoding="utf-8-sig", dtype={"Bill_No": str, "cust_id": str}, low_memory=False)
+KN = ["Bill_No", "cust_id", "Bill_Date", "Due_Date", "TermStart", "TermEnd", "DaysToTermEnd", "TermMonths",
+      "MovedDate", "SwitchDate", "DisconnectRequestDate", "DroppedDate"]
+kfirst = open(termf, "r", encoding="utf-8-sig", errors="replace").readline()
+k_header = kfirst.strip().lower().startswith("bill_no")
+k = pd.read_csv(termf, header=0 if k_header else None, encoding="utf-8-sig", dtype=str, low_memory=False)
+if not k_header:
+    k.columns = KN[:k.shape[1]]
+for col in ["DaysToTermEnd", "TermMonths"]:
+    k[col] = pd.to_numeric(k[col], errors="coerce")
+if "TermStart" not in k.columns:
+    sys.exit("This contract file is the old one (Step 29). Please run Part B of Step 30 again and save it with the header row as bill_risk_contract_leave_pull.csv, replacing the old file.")
 for col in ["TermStart", "TermEnd", "MovedDate", "SwitchDate", "DisconnectRequestDate", "DroppedDate"]:
     k[col] = pd.to_datetime(k[col], errors="coerce")
 # the system uses 2050-12-31 (and similar far-off dates) when there is no fixed end, so treat those as "no fixed end"
