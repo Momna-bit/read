@@ -115,7 +115,7 @@ split["Share of leavers"] = split.Bills / split.Bills.sum()
 dd = d.reset_index(drop=True)
 bk = pd.cut(dd.DaysToTermEnd, [-10**6, -1, 30, 60, 90, 180, 365, 10**6],
             labels=["Already past end", "0-30 days", "31-60", "61-90", "91-180", "181-365", "Over a year"])
-bk = bk.astype(object).where(dd.NoFixedEnd != 1, "No fixed end (month to month)")
+bk = bk.astype(object).where(dd.NoFixedEnd != 1, "Post-term (variable rate, free to leave)")
 by_end = pd.DataFrame({"Bucket": bk, "Left": y, "Unpaid60": unp, "Moved": moved}).groupby("Bucket").agg(
     Bills=("Left", "size"), LeftIn90=("Left", "mean"), UnpaidAt60=("Unpaid60", "mean")).reset_index()
 
@@ -177,3 +177,54 @@ with pd.ExcelWriter("Bill_Risk_Leaving_Split_Totals.xlsx", engine="openpyxl") as
     res.to_excel(xw, sheet_name="Three questions", index=False)
     overlap.to_excel(xw, sheet_name="Overlap", index=False)
 print("\nWrote Bill_Risk_Leaving_Split_Totals.xlsx (totals only)")
+
+# ============================================================================================
+# PART 3: the same split using the "leaving with debt" logic from the earlier discussions
+#   - Non-payment: the customer was disconnected in the collection cycle and then left,
+#                  or left after the due date still owing.
+#   - Voluntary (shopped around): the customer saw the bill and left BEFORE it was due.
+#   - Voluntary (nothing owing): left after the due date with nothing owing.
+#   - Moved: left out.
+# ============================================================================================
+print("\n===== PART 3: split using the 'leaving with debt' logic =====")
+dl = d.DaysToLeave.reset_index(drop=True)
+dd_ = d.DaysToDisconnect.reset_index(drop=True)
+owing = d.StillOutstanding.reset_index(drop=True) == 1
+lv = (y == 1) & ~moved
+left_before_due = lv & (dl < 0)
+disc_then_left = lv & dd_.notna() & (dl >= dd_)
+left_owing_after_due = lv & (dl >= 0) & owing & ~disc_then_left
+left_clean = lv & (dl >= 0) & ~owing & ~disc_then_left
+cats = pd.DataFrame({"Type of leaver": [
+    "Left before the bill was due (shopped around)",
+    "Disconnected in the collection cycle, then left",
+    "Left after the due date, still owing",
+    "Left after the due date, nothing owing"],
+    "Bills": [int(left_before_due.sum()), int((disc_then_left & ~left_before_due).sum()),
+              int((left_owing_after_due & ~left_before_due).sum()), int((left_clean & ~left_before_due).sum())]})
+cats["Share of leavers (moves left out)"] = cats.Bills / cats.Bills.sum()
+cats["Share of those still owing"] = [float((left_before_due & owing).sum() / max(left_before_due.sum(), 1)),
+    float((disc_then_left & ~left_before_due & owing).sum() / max((disc_then_left & ~left_before_due).sum(), 1)),
+    1.0, 0.0]
+print(cats.round(3).to_string(index=False))
+
+nonpay2 = ((disc_then_left | left_owing_after_due) & ~left_before_due).astype(int)
+vol2 = (left_before_due | left_clean).astype(int)
+Q2 = {"Leaves because of non-payment (debt logic)": nonpay2, "Leaves by choice (debt logic)": vol2}
+rows2 = []; sc2 = {}
+for nice, yy in Q2.items():
+    mod = fit2(new[trk], yy[trk], FE)
+    p = mod.predict_proba(new[tek][FE])[:, 1]
+    yt = yy[tek].reset_index(drop=True)
+    sc2[nice] = pd.Series(p)
+    rows2.append({"Question": nice, "Test bills": int(tek.sum()), "Happens": yt.mean(), "AUC": roc_auc_score(yt, p),
+                  "Top 10% catches": m.capture(yt, p, 0.10), "Top 4% catches": m.capture(yt, p, 0.04)})
+res2 = pd.DataFrame(rows2)
+a2 = sc2["Leaves because of non-payment (debt logic)"]; b2 = sc2["Leaves by choice (debt logic)"]
+print("\nTwo questions with the debt logic (higher is better):"); print(res2.round(3).to_string(index=False))
+print("\nShare of top 10% non-payment list also in top 10% voluntary list:",
+      round(float(((a2 >= a2.quantile(0.9)) & (b2 >= b2.quantile(0.9))).sum() / (a2 >= a2.quantile(0.9)).sum()), 3))
+with pd.ExcelWriter("Bill_Risk_Leaving_Debt_Logic_Totals.xlsx", engine="openpyxl") as xw:
+    cats.to_excel(xw, sheet_name="Type of leaver", index=False)
+    res2.to_excel(xw, sheet_name="Two questions", index=False)
+print("\nWrote Bill_Risk_Leaving_Debt_Logic_Totals.xlsx (totals only)")
